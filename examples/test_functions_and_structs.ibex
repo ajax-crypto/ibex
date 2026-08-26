@@ -1,0 +1,228 @@
+// Test file for Functions and Structs features
+
+// ============================================================================
+// FEATURE 1: Named Parameters
+// ============================================================================
+
+add: (lhs: i32, rhs: i32) -> i32 {
+    return lhs + rhs;
+}
+
+configure: (host: [64]byte, port: u16, timeout: u32) -> void {
+    // Configuration logic
+}
+
+test_named_params: () -> void {
+    // Positional call
+    sum1 := add(5, 10);
+    
+    // Named parameters in different order
+    sum2 := add(rhs = 10, lhs = 5);
+    
+    // Mixed positional and named (not recommended but allowed)
+    sum3 := add(5, rhs = 10);
+    
+    // Configure with named params in different order
+    configure(timeout = 30, host = "localhost", port = 8080);
+}
+
+// ============================================================================
+// FEATURE 2: Struct Inheritance
+// ============================================================================
+
+struct Entity {
+    id: u64;
+    name: [256]byte;
+}
+
+struct PhysicalEntity : Entity {
+    x: f64;
+    y: f64;
+    z: f64;
+}
+
+struct DynamicEntity : PhysicalEntity {
+    vx: f64;
+    vy: f64;
+    vz: f64;
+    mass: f64;
+}
+
+// Multiple inheritance
+struct NetworkEntity : Entity {
+    ip_address: [16]byte;
+    port: u16;
+}
+
+struct RemoteDynamicEntity : DynamicEntity, NetworkEntity {
+    session_id: u64;
+}
+
+// ============================================================================
+// FEATURE 3: Struct Initialization with Designated Initializers
+// ============================================================================
+
+struct Point {
+    x: i32 = 0;
+    y: i32 = 0;
+}
+
+struct Rectangle {
+    top_left: Point;
+    bottom_right: Point;
+    [[offset:32]] color: u32;
+}
+
+test_struct_init: () -> void {
+    // Default construction
+    p1: Point = Point { };
+    
+    // Named field initializers
+    p2: Point = Point { x: 100, y: 200 };
+    
+    // Out of order
+    p3: Point = Point { y: 50, x: 75 };
+    
+    // Positional initialization
+    p4: Point = Point { 10, 20 };
+    
+    // Nested struct initialization
+    rect: Rectangle = Rectangle {
+        top_left: Point { x: 0, y: 0 },
+        bottom_right: Point { x: 800, y: 600 },
+        color: 0xFF0000
+    };
+    
+    // Mixed positional and named
+    rect2: Rectangle = Rectangle {
+        Point { x: 10, y: 10 },
+        bottom_right: Point { x: 100, y: 100 },
+        color: 0x00FF00
+    };
+}
+
+// ============================================================================
+// FEATURE 4: Memory Layout Specification
+// ============================================================================
+
+struct HardwareRegister {
+    [[offset:0]] control: u32;
+    [[offset:4]] status: u32;
+    [[offset:8]] data: u64;
+    [[offset:16]] interrupt: u32;
+}
+
+struct NetworkPacket {
+    [[offset:0]] src_ip: [4]u8;
+    [[offset:4]] dst_ip: [4]u8;
+    [[offset:8]] src_port: u16;
+    [[offset:10]] dst_port: u16;
+    [[offset:12]] length: u16;
+    [[offset:14]] checksum: u16;
+}
+
+// ============================================================================
+// FEATURE 5: Flags (Bitset Enums)
+// ============================================================================
+
+flag FileMode : u32 {
+    read,       // 1
+    write,      // 2
+    execute     // 4
+}
+
+flag ProcessState : u8 {
+    stopped = 0,
+    running,     // 1
+    paused,      // 2
+    error        // 4
+}
+
+flag Permission : u32 {
+    none = 0,
+    read,        // 1
+    write,       // 2
+    execute,     // 4
+    delete,      // 8
+    admin        // 16
+}
+
+// ============================================================================
+// FEATURE 6: Complete Example Using All Features
+// ============================================================================
+
+struct User {
+    id: u64;
+    name: [256]byte;
+    [[offset:264]] email: [256]byte;
+    [[offset:520]] permissions: Permission;
+    [[offset:524]] active: bool = true;
+}
+
+create_user: (
+    user_id: u64,
+    user_name: [256]byte,
+    user_email: [256]byte,
+    perms: Permission
+) -> User {
+    return User {
+        id: user_id,
+        name: user_name,
+        email: user_email,
+        permissions: perms,
+        active: true
+    };
+}
+
+check_permission: (user: User, perm: Permission) -> bool {
+    return (user.permissions & perm) != 0;
+}
+
+grant_permission: (
+    target: Permission,
+    perm: Permission
+) -> Permission {
+    return target | perm;
+}
+
+revoke_permission: (
+    target: Permission,
+    perm: Permission
+) -> Permission {
+    return target & ~perm;
+}
+
+test_all_features: () -> void {
+    // Create user with named parameters (feature 1)
+    admin: User = create_user(
+        user_id = 1,
+        user_name = "Alice",
+        user_email = "alice@example.com",
+        perms = Permission.admin
+    );
+    
+    // Create user with positional parameters
+    regular: User = User {
+        id: 2,
+        name: "Bob",
+        email: "bob@example.com",
+        permissions: Permission.read | Permission.write,
+        active: true
+    };
+    
+    // Check permissions (feature 5: flags)
+    can_read := check_permission(regular, Permission.read);
+    can_write := check_permission(regular, Permission.write);
+    
+    // Modify permissions (bitwise operations on flags)
+    new_perms := grant_permission(
+        target = regular.permissions,
+        perm = Permission.execute
+    );
+    
+    // Get string representation (feature 6: implicit functions)
+    perm_text := new_perms.to_text();
+    
+    // Parse from string
+    parsed_perm := Permission.from_text("read | write");
+}

@@ -1,0 +1,45 @@
+// Test file for new language features
+
+// Feature 1: Enum extension
+enum boolean : bool {
+    no = false,
+    yes = true
+}
+
+enum tribool : boolean {
+    maybe
+}
+
+// Feature 2: Static members on structs
+struct Config {
+    static VERSION: u32 = 100;
+    static DEBUG: bool = true;
+}
+
+// Feature 3: For-else and while-else
+process_items: () -> void {
+    // For-else: else executes if range is empty
+    for item in empty_range {
+        print(item);
+    } else {
+        print("Range is empty");
+    }
+    
+    // While-else: else executes if condition is false on first check
+    x: i32 = 0;
+    while x > 10 {
+        x -= 1;
+    } else {
+        print("x was not greater than 10");
+    }
+}
+
+// Feature 4: Accessing static members and enum values with . operator
+get_config: () -> u32 {
+    version := Config.VERSION;
+    
+    state: boolean = boolean.yes;
+    tri_state: tribool = tribool.maybe;
+    
+    return version;
+}

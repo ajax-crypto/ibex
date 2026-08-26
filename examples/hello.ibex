@@ -1,0 +1,18 @@
+// Example program in Ibex language
+
+// Function to add two integers
+func add(i32 a, i32 b) -> i32 {
+    return a + b;
+}
+
+// Function to multiply two integers
+func multiply(i32 x, i32 y) -> i32 {
+    return x * y;
+}
+
+// Main program entry point
+func main() -> i32 {
+    let result: i32 = add(5, 3);
+    let product: i32 = multiply(result, 2);
+    return product;
+}
