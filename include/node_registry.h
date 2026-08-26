@@ -152,12 +152,6 @@ private:
     
     // Helper methods
     Str alloc_str(std::string_view sv);
-    
-    // JSON helpers
-    void serialize_module_to_json(std::string& output, const Module& module) const;
-    void serialize_node_to_json(std::string& output, const Node& node) const;
-    bool deserialize_module_from_json(const std::string& json_str, Module& module);
-    bool deserialize_node_from_json(const std::string& json_str, Node& node);
 };
 
 // ============================================================================

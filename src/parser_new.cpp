@@ -107,6 +107,9 @@ std::vector<DeclHandle> ParserNew::parse_program() {
         auto decl_handle = parse_declaration();
         if (!decl_handle.is_null()) {
             declarations.push_back(decl_handle);
+        } else {
+            // Panic mode recovery
+            advance();
         }
     }
 
@@ -403,8 +406,12 @@ DeclHandle ParserNew::parse_enum_decl() {
             if (!check(TokenType::RBRACE)) {
                 if (!match(TokenType::COMMA)) {
                     error("Expected ',' after enum member");
+                    break;
                 }
             }
+        } else {
+            error("Expected identifier for enum member");
+            break;
         }
     }
 
@@ -432,15 +439,22 @@ DeclHandle ParserNew::parse_flag_decl() {
 
     Str flag_name = alloc_str(advance().lexeme);
 
-    if (!match(TokenType::COLON)) {
-        error("Expected ':' after flag name");
-        return DeclHandle();
+    TypeHandle base_type;
+    std::optional<Str> extends;
+
+    if (match(TokenType::COLON)) {
+        if (is_primitive_type()) {
+            base_type = parse_type();
+        } else if (check(TokenType::IDENTIFIER)) {
+            extends = alloc_str(advance().lexeme);
+        } else {
+            error("Expected primitive type or flag name to extend after ':'");
+            return DeclHandle();
+        }
     }
 
-    TypeHandle base_type = parse_type();
-
     if (!match(TokenType::LBRACE)) {
-        error("Expected '{' after flag base type");
+        error("Expected '{' after flag declaration");
         return DeclHandle();
     }
 
@@ -464,8 +478,12 @@ DeclHandle ParserNew::parse_flag_decl() {
             if (!check(TokenType::RBRACE)) {
                 if (!match(TokenType::COMMA)) {
                     error("Expected ',' after flag member");
+                    break;
                 }
             }
+        } else {
+            error("Expected identifier for flag member");
+            break;
         }
     }
 
@@ -478,6 +496,7 @@ DeclHandle ParserNew::parse_flag_decl() {
     FlagDecl decl{
         .name = flag_name,
         .base_type = base_type,
+        .extends = extends,
         .members = members_span
     };
 

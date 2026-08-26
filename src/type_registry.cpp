@@ -4,8 +4,11 @@
 #include <sstream>
 #include <cstring>
 
-// Include yyjson
-#include <yyjson.h>
+// Using glaze for serialization
+#include <type_traits>
+#include <utility>
+#include <ranges>
+#include <glaze/glaze.hpp>
 
 namespace ibex {
 
@@ -190,163 +193,122 @@ bool TypeRegistry::update_member_offset(uint64_t type_id, std::string_view membe
     return false;
 }
 
+// Namespace continues
+
+// Mirror structs for Glaze serialization
+struct GlazeTypeMember {
+    std::string name;
+    std::string type_name;
+    std::optional<uint32_t> offset;
+    std::optional<std::string> default_value;
+};
+
+struct GlazeTypeDefinition {
+    TypeDefinition::Kind kind;
+    std::string name;
+    std::vector<GlazeTypeMember> members;
+    std::vector<std::string> bases;
+    std::string underlying_type;
+    std::optional<std::string> extends;
+    uint64_t unique_id;
+};
+
+} // namespace ibex
+
+template <>
+struct glz::meta<ibex::GlazeTypeMember> {
+    using T = ibex::GlazeTypeMember;
+    static constexpr auto value = object(
+        "name", &T::name,
+        "type_name", &T::type_name,
+        "offset", &T::offset,
+        "default_value", &T::default_value
+    );
+};
+
+template <>
+struct glz::meta<ibex::GlazeTypeDefinition> {
+    using T = ibex::GlazeTypeDefinition;
+    static constexpr auto value = object(
+        "kind", &T::kind,
+        "name", &T::name,
+        "members", &T::members,
+        "bases", &T::bases,
+        "underlying_type", &T::underlying_type,
+        "extends", &T::extends,
+        "unique_id", &T::unique_id
+    );
+};
+
+namespace ibex {
+
 std::string TypeRegistry::to_json() const {
-    yyjson_mut_doc *doc = yyjson_mut_doc_new(nullptr);
-    yyjson_mut_val *root = yyjson_mut_arr(doc);
-    yyjson_mut_doc_set_root(doc, root);
-    
-    for (const auto& type_def : types_) {
-        yyjson_mut_val *type_obj = yyjson_mut_obj(doc);
+    std::vector<GlazeTypeDefinition> glaze_types;
+    glaze_types.reserve(types_.size());
+    for (const auto& t : types_) {
+        GlazeTypeDefinition g;
+        g.kind = t.kind;
+        g.name = std::string(t.name.ptr(), t.name.len());
+        g.unique_id = t.unique_id;
+        g.underlying_type = std::string(t.underlying_type.ptr(), t.underlying_type.len());
+        if (t.extends) g.extends = std::string(t.extends->ptr(), t.extends->len());
         
-        // Add type info
-        yyjson_mut_obj_add_str(doc, type_obj, "name", type_def.name.data(), type_def.name.size());
-        yyjson_mut_obj_add_uint(doc, type_obj, "kind", static_cast<uint32_t>(type_def.kind));
-        yyjson_mut_obj_add_uint(doc, type_obj, "id", type_def.unique_id);
-        
-        // Add members
-        yyjson_mut_val *members_arr = yyjson_mut_arr(doc);
-        for (const auto& member : type_def.members) {
-            yyjson_mut_val *member_obj = yyjson_mut_obj(doc);
-            yyjson_mut_obj_add_str(doc, member_obj, "name", member.name.data(), member.name.size());
-            yyjson_mut_obj_add_str(doc, member_obj, "type", member.type_name.data(), member.type_name.size());
-            
-            if (member.offset.has_value()) {
-                yyjson_mut_obj_add_uint(doc, member_obj, "offset", member.offset.value());
-            }
-            
-            if (member.default_value.has_value()) {
-                yyjson_mut_obj_add_str(doc, member_obj, "default", 
-                    member.default_value.value().data(), member.default_value.value().size());
-            }
-            
-            yyjson_mut_arr_append(members_arr, member_obj);
-        }
-        yyjson_mut_obj_add_val(doc, type_obj, "members", members_arr);
-        
-        // Add bases
-        yyjson_mut_val *bases_arr = yyjson_mut_arr(doc);
-        for (const auto& base : type_def.bases) {
-            yyjson_mut_arr_append(bases_arr, yyjson_mut_str(doc, base.data(), base.size()));
-        }
-        yyjson_mut_obj_add_val(doc, type_obj, "bases", bases_arr);
-        
-        // Add other fields
-        if (!type_def.underlying_type.is_empty()) {
-            yyjson_mut_obj_add_str(doc, type_obj, "underlying_type", 
-                type_def.underlying_type.data(), type_def.underlying_type.size());
+        for (const auto& m : t.members) {
+            GlazeTypeMember gm;
+            gm.name = std::string(m.name.ptr(), m.name.len());
+            gm.type_name = std::string(m.type_name.ptr(), m.type_name.len());
+            gm.offset = m.offset;
+            if (m.default_value) gm.default_value = std::string(m.default_value->ptr(), m.default_value->len());
+            g.members.push_back(std::move(gm));
         }
         
-        if (type_def.extends.has_value()) {
-            yyjson_mut_obj_add_str(doc, type_obj, "extends", 
-                type_def.extends.value().data(), type_def.extends.value().size());
+        for (const auto& b : t.bases) {
+            g.bases.push_back(std::string(b.ptr(), b.len()));
         }
         
-        yyjson_mut_arr_append(root, type_obj);
+        glaze_types.push_back(std::move(g));
     }
     
-    // Convert to string
-    size_t json_size = 0;
-    char *json_str = yyjson_mut_write(doc, 0, &json_size);
-    std::string result(json_str, json_size);
-    
-    free(json_str);
-    yyjson_mut_doc_free(doc);
-    
-    return result;
+    std::string json;
+    glz::write_json(glaze_types, json);
+    return json;
 }
 
 bool TypeRegistry::from_json(std::string_view json_str) {
-    yyjson_doc *doc = yyjson_read(json_str.data(), json_str.size(), nullptr);
-    if (!doc) return false;
+    std::vector<GlazeTypeDefinition> glaze_types;
+    auto ec = glz::read_json(glaze_types, json_str);
+    if (ec) return false;
     
-    yyjson_val *root = yyjson_doc_get_root(doc);
-    if (!yyjson_is_arr(root)) {
-        yyjson_doc_free(doc);
-        return false;
+    types_.clear();
+    name_to_id_.clear();
+    next_type_id_ = 1;
+    
+    for (const auto& g : glaze_types) {
+        TypeDefinition t;
+        t.kind = g.kind;
+        t.name = alloc_str(g.name);
+        t.unique_id = g.unique_id;
+        next_type_id_ = std::max(next_type_id_, t.unique_id + 1);
+        t.underlying_type = alloc_str(g.underlying_type);
+        if (g.extends) t.extends = alloc_str(*g.extends);
+        
+        for (const auto& gm : g.members) {
+            TypeMember m;
+            m.name = alloc_str(gm.name);
+            m.type_name = alloc_str(gm.type_name);
+            m.offset = gm.offset;
+            if (gm.default_value) m.default_value = alloc_str(*gm.default_value);
+            t.members.push_back(m);
+        }
+        
+        for (const auto& b : g.bases) {
+            t.bases.push_back(alloc_str(b));
+        }
+        
+        name_to_id_[g.name] = t.unique_id;
+        types_.push_back(t);
     }
     
-    clear();
-    
-    yyjson_arr_iter iter = yyjson_arr_iter_with(root);
-    yyjson_val *type_obj;
-    while ((type_obj = yyjson_arr_iter_next(&iter))) {
-        TypeDefinition type_def;
-        
-        // Read type info
-        yyjson_val *name_val = yyjson_obj_get(type_obj, "name");
-        if (name_val && yyjson_is_str(name_val)) {
-            type_def.name = alloc_str(yyjson_get_str(name_val));
-        }
-        
-        yyjson_val *kind_val = yyjson_obj_get(type_obj, "kind");
-        if (kind_val && yyjson_is_uint(kind_val)) {
-            type_def.kind = static_cast<TypeDefinition::Kind>(yyjson_get_uint(kind_val));
-        }
-        
-        yyjson_val *id_val = yyjson_obj_get(type_obj, "id");
-        if (id_val && yyjson_is_uint(id_val)) {
-            type_def.unique_id = yyjson_get_uint(id_val);
-            next_type_id_ = std::max(next_type_id_, type_def.unique_id + 1);
-        }
-        
-        // Read members
-        yyjson_val *members_arr = yyjson_obj_get(type_obj, "members");
-        if (members_arr && yyjson_is_arr(members_arr)) {
-            yyjson_arr_iter members_iter = yyjson_arr_iter_with(members_arr);
-            yyjson_val *member_obj;
-            while ((member_obj = yyjson_arr_iter_next(&members_iter))) {
-                TypeMember member;
-                
-                yyjson_val *mem_name = yyjson_obj_get(member_obj, "name");
-                if (mem_name) member.name = alloc_str(yyjson_get_str(mem_name));
-                
-                yyjson_val *mem_type = yyjson_obj_get(member_obj, "type");
-                if (mem_type) member.type_name = alloc_str(yyjson_get_str(mem_type));
-                
-                yyjson_val *mem_offset = yyjson_obj_get(member_obj, "offset");
-                if (mem_offset && yyjson_is_uint(mem_offset)) {
-                    member.offset = static_cast<uint32_t>(yyjson_get_uint(mem_offset));
-                }
-                
-                yyjson_val *mem_default = yyjson_obj_get(member_obj, "default");
-                if (mem_default && yyjson_is_str(mem_default)) {
-                    member.default_value = alloc_str(yyjson_get_str(mem_default));
-                }
-                
-                type_def.members.push_back(member);
-            }
-        }
-        
-        // Read bases
-        yyjson_val *bases_arr = yyjson_obj_get(type_obj, "bases");
-        if (bases_arr && yyjson_is_arr(bases_arr)) {
-            yyjson_arr_iter bases_iter = yyjson_arr_iter_with(bases_arr);
-            yyjson_val *base_val;
-            while ((base_val = yyjson_arr_iter_next(&bases_iter))) {
-                if (yyjson_is_str(base_val)) {
-                    type_def.bases.push_back(alloc_str(yyjson_get_str(base_val)));
-                }
-            }
-        }
-        
-        // Read other fields
-        yyjson_val *underlying = yyjson_obj_get(type_obj, "underlying_type");
-        if (underlying && yyjson_is_str(underlying)) {
-            type_def.underlying_type = alloc_str(yyjson_get_str(underlying));
-        }
-        
-        yyjson_val *extends = yyjson_obj_get(type_obj, "extends");
-        if (extends && yyjson_is_str(extends)) {
-            type_def.extends = alloc_str(yyjson_get_str(extends));
-        }
-        
-        // Register type
-        std::string name_str(type_def.name.data(), type_def.name.size());
-        name_to_id_[name_str] = type_def.unique_id;
-        types_.push_back(type_def);
-    }
-    
-    yyjson_doc_free(doc);
     return true;
 }
 

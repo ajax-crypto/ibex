@@ -91,6 +91,12 @@ private:
     
     // Struct inheritance helper
     void flatten_struct_bases(StructDecl& decl, std::vector<StructMember>& out_members, uint32_t& current_offset);
+    
+    // Enum inheritance helper
+    void flatten_enum_bases(EnumDecl& decl, std::vector<EnumMember>& out_members);
+
+    // Flag inheritance helper
+    void flatten_flag_bases(FlagDecl& decl, std::vector<EnumMember>& out_members);
 
     Program& program_;
     TypeRegistry& type_registry_;

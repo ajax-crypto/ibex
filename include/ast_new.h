@@ -345,6 +345,7 @@ struct EnumDecl {
 struct FlagDecl {
     Str name;
     TypeHandle base_type;           // Underlying primitive type (u8, i32, i64, etc.)
+    std::optional<Str> extends;     // Optional base flag to extend
     std::span<EnumMember> members;  // Members get auto-assigned power-of-two values
 };
 

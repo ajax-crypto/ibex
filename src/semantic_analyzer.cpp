@@ -60,85 +60,179 @@ TypeHandle SemanticAnalyzer::resolve_type(const Type& type_variant) {
 // Types
 // ----------------------------------------------------------------------------
 void SemanticAnalyzer::visit(const PrimitiveType& type) {}
-void SemanticAnalyzer::visit(const PointerType& type) {}
-void SemanticAnalyzer::visit(const ReferenceType& type) {}
-void SemanticAnalyzer::visit(const ArrayType& type) {}
-void SemanticAnalyzer::visit(const SliceType& type) {}
+void SemanticAnalyzer::visit(const PointerType& type) { visit_type(program_.types[type.base.index], this); }
+void SemanticAnalyzer::visit(const ReferenceType& type) { visit_type(program_.types[type.base.index], this); }
+void SemanticAnalyzer::visit(const ArrayType& type) { visit_type(program_.types[type.element.index], this); }
+void SemanticAnalyzer::visit(const SliceType& type) { visit_type(program_.types[type.element.index], this); }
 void SemanticAnalyzer::visit(const NamedType& type) {}
 
 // ----------------------------------------------------------------------------
 // Expressions
 // ----------------------------------------------------------------------------
-void SemanticAnalyzer::visit(const BinaryExpr& expr) {}
-void SemanticAnalyzer::visit(const UnaryExpr& expr) {}
+void SemanticAnalyzer::visit(const BinaryExpr& expr) {
+    visit_expr(program_.expressions[expr.left.index], this);
+    visit_expr(program_.expressions[expr.right.index], this);
+}
+void SemanticAnalyzer::visit(const UnaryExpr& expr) {
+    visit_expr(program_.expressions[expr.operand.index], this);
+}
 void SemanticAnalyzer::visit(const LiteralExpr& expr) {}
-void SemanticAnalyzer::visit(const IdentifierExpr& expr) {}
+void SemanticAnalyzer::visit(const IdentifierExpr& expr) {
+    if (!find_symbol(expr.name)) {
+        report_error("Undefined symbol: '" + std::string(expr.name.ptr(), expr.name.len()) + "'");
+    }
+}
 
 void SemanticAnalyzer::visit(const CallExpr& expr) {
-    // FEATURE 1: Named Parameters
     // Find the function declaration being called.
-    // In a full implementation, we'd resolve the type of `expr.function`.
-    // For now, we assume it's an IdentifierExpr calling a known function.
-    
-    // We should merge positional and named arguments into a correct positional array.
-    // Since we can't fully resolve yet, we outline the logic:
-    if (!expr.named_args.empty()) {
-        // Here we would lookup the FunctionDecl to get parameters.
-        // Match each named_arg to the parameter list index.
-        // Reorder into a new args span.
-        // For now, this is a placeholder where the reordering logic happens.
+    const FunctionDecl* func_decl = nullptr;
+    if (!expr.function.is_null()) {
+        if (auto* id_expr = std::get_if<IdentifierExpr>(&program_.expressions[expr.function.index])) {
+            for (const auto& decl_variant : program_.declarations) {
+                if (auto* f = std::get_if<FunctionDecl>(&decl_variant)) {
+                    if (f->name.len() == id_expr->name.len() && std::strncmp(f->name.ptr(), id_expr->name.ptr(), f->name.len()) == 0) {
+                        func_decl = f;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    if (func_decl) {
+        if (expr.arguments.size() + expr.named_args.size() > func_decl->parameters.size()) {
+            report_error("Too many arguments for function '" + std::string(func_decl->name.ptr(), func_decl->name.len()) + "'");
+        }
+        
+        for (const auto& named_arg : expr.named_args) {
+            bool found = false;
+            for (const auto& param : func_decl->parameters) {
+                if (param.name.len() == named_arg.name.len() && std::strncmp(param.name.ptr(), named_arg.name.ptr(), param.name.len()) == 0) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                report_error("No such parameter '" + std::string(named_arg.name.ptr(), named_arg.name.len()) + "' in function");
+            }
+        }
     }
     
-    // Recursively visit arguments
-    for (auto arg : expr.arguments) {
-        visit_expr(program_.expressions[arg.index], this);
-    }
-    for (auto arg : expr.named_args) {
-        visit_expr(program_.expressions[arg.value.index], this);
-    }
+    if (!expr.function.is_null()) visit_expr(program_.expressions[expr.function.index], this);
+    for (auto arg : expr.arguments) visit_expr(program_.expressions[arg.index], this);
+    for (auto arg : expr.named_args) visit_expr(program_.expressions[arg.value.index], this);
 }
 
-void SemanticAnalyzer::visit(const CastExpr& expr) {}
-void SemanticAnalyzer::visit(const MemberExpr& expr) {}
+void SemanticAnalyzer::visit(const CastExpr& expr) {
+    visit_type(program_.types[expr.target_type.index], this);
+    visit_expr(program_.expressions[expr.operand.index], this);
+}
+void SemanticAnalyzer::visit(const MemberExpr& expr) {
+    visit_expr(program_.expressions[expr.object.index], this);
+}
 void SemanticAnalyzer::visit(const TypeMemberExpr& expr) {}
-void SemanticAnalyzer::visit(const IndexExpr& expr) {}
-void SemanticAnalyzer::visit(const SliceExpr& expr) {}
-void SemanticAnalyzer::visit(const AddressOfExpr& expr) {}
-void SemanticAnalyzer::visit(const ArrayLiteralExpr& expr) {}
+void SemanticAnalyzer::visit(const IndexExpr& expr) {
+    visit_expr(program_.expressions[expr.object.index], this);
+    visit_expr(program_.expressions[expr.index.index], this);
+}
+void SemanticAnalyzer::visit(const SliceExpr& expr) {
+    visit_expr(program_.expressions[expr.object.index], this);
+    if (!expr.start.is_null()) visit_expr(program_.expressions[expr.start.index], this);
+    if (!expr.end.is_null()) visit_expr(program_.expressions[expr.end.index], this);
+}
+void SemanticAnalyzer::visit(const AddressOfExpr& expr) {
+    visit_expr(program_.expressions[expr.operand.index], this);
+}
+void SemanticAnalyzer::visit(const ArrayLiteralExpr& expr) {
+    for (auto el : expr.elements) visit_expr(program_.expressions[el.index], this);
+}
 
 void SemanticAnalyzer::visit(const StructInitExpr& expr) {
-    // FEATURE 2: Designated Struct Initializers
-    // Look up struct by expr.type_name
-    // In a real implementation we would search program_.declarations for StructDecl
-    
-    // For each named field in expr.field_values, match to the struct member.
-    // Apply default values for uninitialized fields.
-    // Type check values.
-    
-    for (auto arg : expr.positional_values) {
-        visit_expr(program_.expressions[arg.index], this);
+    const StructDecl* struct_decl = nullptr;
+    for (const auto& decl_variant : program_.declarations) {
+        if (auto* s = std::get_if<StructDecl>(&decl_variant)) {
+            if (s->name.len() == expr.type_name.len() && std::strncmp(s->name.ptr(), expr.type_name.ptr(), s->name.len()) == 0) {
+                struct_decl = s;
+                break;
+            }
+        }
     }
-    for (auto arg : expr.field_values) {
-        visit_expr(program_.expressions[arg.value.index], this);
+
+    if (struct_decl) {
+        std::vector<StructMember> all_members;
+        uint32_t offset = 0;
+        flatten_struct_bases(*const_cast<StructDecl*>(struct_decl), all_members, offset);
+        for (const auto& named_arg : expr.field_values) {
+            bool found = false;
+            for (const auto& mem : all_members) {
+                if (mem.name.len() == named_arg.name.len() && std::strncmp(mem.name.ptr(), named_arg.name.ptr(), mem.name.len()) == 0) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) report_error("No such field '" + std::string(named_arg.name.ptr(), named_arg.name.len()) + "' in struct");
+        }
+    } else {
+        report_error("Unknown struct type '" + std::string(expr.type_name.ptr(), expr.type_name.len()) + "'");
     }
+    
+    for (auto arg : expr.positional_values) visit_expr(program_.expressions[arg.index], this);
+    for (auto arg : expr.field_values) visit_expr(program_.expressions[arg.value.index], this);
 }
 
-void SemanticAnalyzer::visit(const AllocExpr& expr) {}
-void SemanticAnalyzer::visit(const FreeExpr& expr) {}
-void SemanticAnalyzer::visit(const BlockExpr& expr) {}
+void SemanticAnalyzer::visit(const AllocExpr& expr) {
+    visit_type(program_.types[expr.element_type.index], this);
+    if (expr.size) visit_expr(program_.expressions[expr.size.value().index], this);
+}
+void SemanticAnalyzer::visit(const FreeExpr& expr) {
+    visit_expr(program_.expressions[expr.pointer.index], this);
+}
+void SemanticAnalyzer::visit(const BlockExpr& expr) {
+    push_scope();
+    for (auto stmt : expr.statements) visit_stmt(program_.statements[stmt.index], this);
+    if (expr.value) visit_expr(program_.expressions[expr.value.value().index], this);
+    pop_scope();
+}
 
 // ----------------------------------------------------------------------------
 // Statements
 // ----------------------------------------------------------------------------
-void SemanticAnalyzer::visit(const BlockStmt& stmt) {}
-void SemanticAnalyzer::visit(const ReturnStmt& stmt) {}
-void SemanticAnalyzer::visit(const IfStmt& stmt) {}
-void SemanticAnalyzer::visit(const WhileStmt& stmt) {}
-void SemanticAnalyzer::visit(const ForStmt& stmt) {}
+void SemanticAnalyzer::visit(const BlockStmt& stmt) {
+    push_scope();
+    for (auto s : stmt.statements) visit_stmt(program_.statements[s.index], this);
+    pop_scope();
+}
+void SemanticAnalyzer::visit(const ReturnStmt& stmt) {
+    if (stmt.value) visit_expr(program_.expressions[stmt.value.value().index], this);
+}
+void SemanticAnalyzer::visit(const IfStmt& stmt) {
+    visit_expr(program_.expressions[stmt.condition.index], this);
+    visit_stmt(program_.statements[stmt.then_branch.index], this);
+    if (stmt.else_branch) visit_stmt(program_.statements[stmt.else_branch.value().index], this);
+}
+void SemanticAnalyzer::visit(const WhileStmt& stmt) {
+    visit_expr(program_.expressions[stmt.condition.index], this);
+    visit_stmt(program_.statements[stmt.body.index], this);
+    if (stmt.else_branch) visit_stmt(program_.statements[stmt.else_branch.value().index], this);
+}
+void SemanticAnalyzer::visit(const ForStmt& stmt) {
+    visit_expr(program_.expressions[stmt.range.index], this);
+    push_scope();
+    add_symbol(stmt.variable, TypeHandle{0}, DeclHandle{}, true); // Mock loop variable type for now
+    visit_stmt(program_.statements[stmt.body.index], this);
+    pop_scope();
+    if (stmt.else_branch) visit_stmt(program_.statements[stmt.else_branch.value().index], this);
+}
 void SemanticAnalyzer::visit(const BreakStmt& stmt) {}
 void SemanticAnalyzer::visit(const ContinueStmt& stmt) {}
-void SemanticAnalyzer::visit(const ExprStmt& stmt) {}
-void SemanticAnalyzer::visit(const VarDeclStmt& stmt) {}
+void SemanticAnalyzer::visit(const ExprStmt& stmt) {
+    visit_expr(program_.expressions[stmt.expression.index], this);
+}
+void SemanticAnalyzer::visit(const VarDeclStmt& stmt) {
+    if (stmt.type) visit_type(program_.types[stmt.type.value().index], this);
+    if (stmt.initializer) visit_expr(program_.expressions[stmt.initializer.value().index], this);
+    add_symbol(stmt.name, stmt.type.value_or(TypeHandle{0}), DeclHandle{}, stmt.is_const);
+}
 
 // ----------------------------------------------------------------------------
 // Declarations
@@ -152,7 +246,11 @@ void SemanticAnalyzer::visit(const FunctionDecl& decl) {
     pop_scope();
 }
 
-void SemanticAnalyzer::visit(const VariableDecl& decl) {}
+void SemanticAnalyzer::visit(const VariableDecl& decl) {
+    if (decl.type) visit_type(program_.types[decl.type.value().index], this);
+    if (decl.initializer) visit_expr(program_.expressions[decl.initializer.value().index], this);
+    add_symbol(decl.name, decl.type.value_or(TypeHandle{0}), DeclHandle{}, decl.is_const);
+}
 
 void SemanticAnalyzer::flatten_struct_bases(StructDecl& decl, std::vector<StructMember>& out_members, uint32_t& current_offset) {
     // Recursively resolve and append base struct members
@@ -185,49 +283,217 @@ void SemanticAnalyzer::flatten_struct_bases(StructDecl& decl, std::vector<Struct
 }
 
 void SemanticAnalyzer::visit(const StructDecl& decl_const) {
-    // We need to modify the struct to include inherited members and offsets
-    // Const cast is safe here because we own the AST and are mutating it during semantic analysis
     StructDecl& decl = const_cast<StructDecl&>(decl_const);
     
-    // FEATURE 3 & 4: Struct Inheritance & Memory Layout
     std::vector<StructMember> flattened_members;
     uint32_t current_offset = 0;
     
-    // 1. Flatten bases
+    // Process bases
     flatten_struct_bases(decl, flattened_members, current_offset);
     
-    // 2. Process own members and resolve offsets
+    // Append own members and compute offsets
     for (auto& member : decl.members) {
-        // Check for name collisions with bases
-        for (const auto& existing : flattened_members) {
-            if (existing.name == member.name) {
-                report_error("Member '" + std::string(member.name.ptr(), member.name.len()) + "' hides inherited member");
-            }
-        }
-        
         if (member.offset.has_value()) {
             if (member.offset.value() < current_offset) {
-                report_error("Explicit offset for '" + std::string(member.name.ptr(), member.name.len()) + "' overlaps with previous members");
+                report_error("Overlap or invalid explicit offset for member '" + std::string(member.name.ptr(), member.name.len()) + "'");
             }
             current_offset = member.offset.value();
         } else {
             member.offset = current_offset;
         }
         
-        // Advance offset by size of type (mock size 4 for now)
-        current_offset += 4;
+        // Ensure no name collisions
+        for (const auto& base_mem : flattened_members) {
+            if (base_mem.name.len() == member.name.len() && std::strncmp(base_mem.name.ptr(), member.name.ptr(), base_mem.name.len()) == 0) {
+                report_error("Member name collision with base struct: '" + std::string(member.name.ptr(), member.name.len()) + "'");
+            }
+        }
         
+        flattened_members.push_back(member);
+        current_offset += 4; // Estimate size based on type registry (we'll just add 4 for now)
+    }
+    
+    ibex::TypeDefinition type_def;
+    type_def.name = type_registry_.alloc_str(std::string_view(decl.name.ptr(), decl.name.len()));
+    type_def.kind = ibex::TypeDefinition::Kind::STRUCT;
+    for (const auto& m : flattened_members) {
+        ibex::TypeMember tm;
+        tm.name = type_registry_.alloc_str(std::string_view(m.name.ptr(), m.name.len()));
+        tm.type_name = type_registry_.alloc_str("unknown");
+        tm.offset = m.offset.value();
+        type_def.members.push_back(tm);
+    }
+    for (const auto& b : decl.bases) {
+        type_def.bases.push_back(type_registry_.alloc_str(std::string_view(b.ptr(), b.len())));
+    }
+    type_registry_.register_type(type_def);
+
+    decl.members = program_.allocate_array(flattened_members);
+    
+    add_symbol(decl.name, TypeHandle{0}); // Register struct type name
+}
+
+void SemanticAnalyzer::visit(const ClassDecl& decl) {
+    add_symbol(decl.name, TypeHandle{0});
+    push_scope();
+    // Class members not implemented deeply yet
+    pop_scope();
+}
+void SemanticAnalyzer::flatten_enum_bases(EnumDecl& decl, std::vector<EnumMember>& out_members) {
+    if (!decl.extends) return;
+    
+    // Find base enum in program_.declarations
+    for (const auto& base_decl_variant : program_.declarations) {
+        if (auto* base_enum = std::get_if<EnumDecl>(&base_decl_variant)) {
+            if (base_enum->name.len() == decl.extends.value().len() && std::strncmp(base_enum->name.ptr(), decl.extends.value().ptr(), base_enum->name.len()) == 0) {
+                // Recursively flatten base
+                flatten_enum_bases(const_cast<EnumDecl&>(*base_enum), out_members);
+                
+                // Append its members
+                for (const auto& member : base_enum->members) {
+                    out_members.push_back(member);
+                }
+                break;
+            }
+        }
+    }
+}
+
+void SemanticAnalyzer::visit(const EnumDecl& decl_const) {
+    EnumDecl& decl = const_cast<EnumDecl&>(decl_const);
+
+    std::vector<EnumMember> flattened_members;
+    flatten_enum_bases(decl, flattened_members);
+
+    for (auto& member : decl.members) {
+        // Ensure no name collisions
+        for (const auto& base_mem : flattened_members) {
+            if (base_mem.name.len() == member.name.len() && std::strncmp(base_mem.name.ptr(), member.name.ptr(), base_mem.name.len()) == 0) {
+                report_error("Enum member name collision with base enum: '" + std::string(member.name.ptr(), member.name.len()) + "'");
+            }
+        }
         flattened_members.push_back(member);
     }
     
-    // Update the decl's members with the flattened list using arena allocation
     decl.members = program_.allocate_array(flattened_members);
+
+    add_symbol(decl.name, TypeHandle{0});
+    visit_type(program_.types[decl.base_type.index], this);
+    for (auto& member : decl.members) {
+        if (member.value) visit_expr(program_.expressions[member.value.value().index], this);
+    }
+}
+void SemanticAnalyzer::flatten_flag_bases(FlagDecl& decl, std::vector<EnumMember>& out_members) {
+    if (!decl.extends) return;
+    for (const auto& base_decl_variant : program_.declarations) {
+        if (auto* base_flag = std::get_if<FlagDecl>(&base_decl_variant)) {
+            if (base_flag->name.len() == decl.extends.value().len() && std::strncmp(base_flag->name.ptr(), decl.extends.value().ptr(), base_flag->name.len()) == 0) {
+                flatten_flag_bases(const_cast<FlagDecl&>(*base_flag), out_members);
+                for (const auto& member : base_flag->members) {
+                    out_members.push_back(member);
+                }
+                break;
+            }
+        }
+    }
 }
 
-void SemanticAnalyzer::visit(const ClassDecl& decl) {}
-void SemanticAnalyzer::visit(const EnumDecl& decl) {}
-void SemanticAnalyzer::visit(const FlagDecl& decl) {}
-void SemanticAnalyzer::visit(const FunctionBindingDecl& decl) {}
-void SemanticAnalyzer::visit(const AllocDecl& decl) {}
+void SemanticAnalyzer::visit(const FlagDecl& decl_const) {
+    FlagDecl& decl = const_cast<FlagDecl&>(decl_const);
+    add_symbol(decl.name, TypeHandle{0});
+    
+    std::vector<EnumMember> flattened_members;
+    flatten_flag_bases(decl, flattened_members);
+
+    int64_t current_value = 1;
+    int64_t max_val = 0;
+    push_scope();
+    for (auto& base_mem : flattened_members) {
+        add_symbol(base_mem.name, TypeHandle{0});
+        if (base_mem.value) {
+             if (auto* lit = std::get_if<LiteralExpr>(&program_.expressions[base_mem.value.value().index])) {
+                 if (lit->kind == LiteralExpr::Kind::INTEGER) {
+                     if (lit->value.int_value > max_val) max_val = lit->value.int_value;
+                 }
+             }
+        }
+    }
+    if (max_val > 0) current_value = max_val << 1;
+
+    for (auto& member : decl.members) {
+        for (const auto& base_mem : flattened_members) {
+            if (base_mem.name.len() == member.name.len() && std::strncmp(base_mem.name.ptr(), member.name.ptr(), base_mem.name.len()) == 0) {
+                report_error("Flag member name collision with base flag: '" + std::string(member.name.ptr(), member.name.len()) + "'");
+            }
+        }
+
+        if (!member.value) {
+            LiteralExpr lit{LiteralExpr::Kind::INTEGER};
+            lit.value.int_value = current_value;
+            
+            ExprHandle handle;
+            handle.index = static_cast<uint32_t>(program_.expressions.size());
+            program_.expressions.push_back(lit);
+            
+            member.value = handle;
+            current_value <<= 1;
+        } else {
+            if (auto* lit = std::get_if<LiteralExpr>(&program_.expressions[member.value.value().index])) {
+                if (lit->kind == LiteralExpr::Kind::INTEGER) {
+                    if (lit->value.int_value < 0) {
+                        report_error("Negative values are not supported in flags");
+                    } else {
+                        current_value = lit->value.int_value << 1;
+                    }
+                }
+            }
+            visit_expr(program_.expressions[member.value.value().index], this);
+        }
+        add_symbol(member.name, TypeHandle{0});
+        flattened_members.push_back(member);
+    }
+    pop_scope();
+    
+    decl.members = program_.allocate_array(flattened_members);
+
+    uint64_t final_max_val = 0;
+    for (auto& m : decl.members) {
+        if (m.value) {
+             if (auto* lit = std::get_if<LiteralExpr>(&program_.expressions[m.value.value().index])) {
+                 if (lit->kind == LiteralExpr::Kind::INTEGER) {
+                     if (lit->value.int_value > (int64_t)final_max_val) final_max_val = lit->value.int_value;
+                 }
+             }
+        }
+    }
+
+    if (decl.base_type.is_null()) {
+        TokenType target = TokenType::U16;
+        if (final_max_val > 0xFFFFFFFF) target = TokenType::U64;
+        else if (final_max_val > 0xFFFF) target = TokenType::U32;
+
+        PrimitiveType pt;
+        pt.primitive = target;
+        TypeHandle th;
+        th.index = static_cast<uint32_t>(program_.types.size());
+        program_.types.push_back(pt);
+        decl.base_type = th;
+    }
+
+    if (!decl.base_type.is_null()) {
+        visit_type(program_.types[decl.base_type.index], this);
+    }
+}
+void SemanticAnalyzer::visit(const FunctionBindingDecl& decl) {
+    for (auto& arg : decl.bound_args) {
+        if (arg) visit_expr(program_.expressions[arg.value().index], this);
+    }
+    add_symbol(decl.name, TypeHandle{0});
+}
+void SemanticAnalyzer::visit(const AllocDecl& decl) {
+    visit_type(program_.types[decl.element_type.index], this);
+    if (decl.size) visit_expr(program_.expressions[decl.size.value().index], this);
+    add_symbol(decl.name, TypeHandle{0});
+}
 
 } // namespace ibex

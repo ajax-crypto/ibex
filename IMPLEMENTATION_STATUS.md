@@ -15,7 +15,7 @@ Successfully implemented six major language features for improved function and s
 | 2 | Struct Designated Initializers | ✅ Parser Done | StructInitExpr added, parse_postfix |
 | 3 | Struct Inheritance | ✅ Parser Done | StructDecl bases field, parse_struct_decl |
 | 4 | Memory Layout Annotations | ✅ Parser Done | StructMember offset field, parse_struct_decl |
-| 5 | Flags (Bitset Enums) | ✅ Parser Done | FlagDecl added, parse_flag_decl |
+| 5 | Flags (Bitset Enums) | ✅ Done | FlagDecl, extends, parsing, inheritance, expressions, semantic analysis |
 | 6 | Implicit Enum/Flag Functions | ⏳ Semantic Only | No parser changes needed |
 
 ---

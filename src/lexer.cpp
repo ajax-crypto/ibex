@@ -136,6 +136,10 @@ TokenType Lexer::keyword_type(std::string_view lexeme) {
         {"f32", TokenType::F32},
         {"f64", TokenType::F64},
         {"bool", TokenType::BOOL},
+        {"or", TokenType::PIPE},
+        {"and", TokenType::AMPERSAND},
+        {"xor", TokenType::CARET},
+        {"complement", TokenType::TILDE},
     };
 
     auto it = keywords.find(lexeme);

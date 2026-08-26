@@ -55,13 +55,13 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 # Dependencies
 include(FetchContent)
 
-# Add yyjson library
+# Add glaze library
 FetchContent_Declare(
-    yyjson
-    URL https://github.com/ibireme/yyjson/archive/refs/tags/0.12.0.tar.gz
-    FIND_PACKAGE_ARGS NAMES yyjson
+    glaze
+    GIT_REPOSITORY https://github.com/stephenberry/glaze.git
+    GIT_TAG main
 )
-FetchContent_MakeAvailable(yyjson)
+FetchContent_MakeAvailable(glaze)
 
 # Include directories
 include_directories(BEFORE ${PROJECT_SOURCE_DIR}/include)

@@ -9,10 +9,6 @@
 #include <string>
 #include <memory>
 
-// Forward declare yyjson types
-struct yyjson_doc;
-struct yyjson_val;
-
 namespace ibex {
 
 // ============================================================================
@@ -122,19 +118,16 @@ public:
     size_t type_count() const { return types_.size(); }
     void clear();
     
+    // Helper methods
+    Str alloc_str(std::string_view sv);
+    
 private:
     Arena& arena_;
     std::vector<TypeDefinition> types_;
     std::unordered_map<std::string, uint64_t> name_to_id_;
     uint64_t next_type_id_ = 1;
     
-    // Helper methods
-    Str alloc_str(std::string_view sv);
     uint64_t find_member_index(const TypeDefinition& type_def, std::string_view member_name) const;
-    
-    // JSON helpers
-    void serialize_type_to_json(yyjson_val* json_arr, const TypeDefinition& type_def) const;
-    bool deserialize_type_from_json(const yyjson_val* json_obj, TypeDefinition& type_def);
 };
 
 } // namespace ibex

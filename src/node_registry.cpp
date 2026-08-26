@@ -3,7 +3,73 @@
 #include <fstream>
 #include <sstream>
 #include <cstring>
-#include <yyjson.h>
+#include <type_traits>
+#include <utility>
+#include <ranges>
+#include <glaze/glaze.hpp>
+
+namespace ibex {
+
+// Glaze Mirror Structs
+struct GlazeNodeParameter {
+    std::string name;
+    uint64_t type_id;
+    std::optional<std::string> default_value;
+};
+
+struct GlazeNodeOutput {
+    std::string name;
+    uint64_t type_id;
+};
+
+struct GlazeNodeInvocation {
+    uint32_t target_node_id;
+    uint32_t argument_index;
+};
+
+struct GlazeNode {
+    uint32_t id;
+    Node::Kind kind;
+    std::string name;
+    std::vector<GlazeNodeParameter> parameters;
+    GlazeNodeOutput output;
+    std::vector<GlazeNodeInvocation> invocations;
+    std::optional<std::string> source_location;
+    uint64_t unique_id;
+};
+
+struct GlazeModule {
+    std::string name;
+    std::vector<GlazeNode> nodes;
+    uint64_t unique_id;
+};
+
+} // namespace ibex
+
+template <> struct glz::meta<ibex::GlazeNodeParameter> {
+    using T = ibex::GlazeNodeParameter;
+    static constexpr auto value = object("name", &T::name, "type_id", &T::type_id, "default_value", &T::default_value);
+};
+template <> struct glz::meta<ibex::GlazeNodeOutput> {
+    using T = ibex::GlazeNodeOutput;
+    static constexpr auto value = object("name", &T::name, "type_id", &T::type_id);
+};
+template <> struct glz::meta<ibex::GlazeNodeInvocation> {
+    using T = ibex::GlazeNodeInvocation;
+    static constexpr auto value = object("target_node_id", &T::target_node_id, "argument_index", &T::argument_index);
+};
+template <> struct glz::meta<ibex::GlazeNode> {
+    using T = ibex::GlazeNode;
+    static constexpr auto value = object(
+        "id", &T::id, "kind", &T::kind, "name", &T::name,
+        "parameters", &T::parameters, "output", &T::output,
+        "invocations", &T::invocations, "source_location", &T::source_location, "unique_id", &T::unique_id
+    );
+};
+template <> struct glz::meta<ibex::GlazeModule> {
+    using T = ibex::GlazeModule;
+    static constexpr auto value = object("name", &T::name, "nodes", &T::nodes, "unique_id", &T::unique_id);
+};
 
 namespace ibex {
 
@@ -97,7 +163,7 @@ uint32_t NodeRegistry::create_node(uint64_t module_id, const Node& node) {
     auto module_opt = get_module(module_id);
     if (!module_opt) return 0;  // Invalid module ID
     
-    Module& module = *module_opt;
+    Module& module = **module_opt;
     Node new_node = node;
     new_node.id = static_cast<uint32_t>(module.nodes.size());
     new_node.unique_id = next_unique_id_++;
@@ -127,11 +193,11 @@ bool NodeRegistry::rename_function(uint64_t module_id, uint32_t node_id, std::st
     auto module_opt = get_module(module_id);
     if (!module_opt) return false;
     
-    Module& module = *module_opt;
+    Module& module = **module_opt;
     auto node_opt = module.find_node_by_id(node_id);
     if (!node_opt) return false;
     
-    Node& node = *node_opt;
+    Node& node = **node_opt;
     
     // Check for conflicts
     std::string new_name_str(new_name.data(), new_name.size());
@@ -155,7 +221,7 @@ bool NodeRegistry::change_parameter_type(uint64_t module_id, uint32_t node_id,
     auto node_opt = get_node(module_id, node_id);
     if (!node_opt) return false;
     
-    Node& node = *node_opt;
+    Node& node = **node_opt;
     
     for (auto& param : node.parameters) {
         std::string pname(param.name.data(), param.name.size());
@@ -172,7 +238,7 @@ bool NodeRegistry::change_return_type(uint64_t module_id, uint32_t node_id, uint
     auto node_opt = get_node(module_id, node_id);
     if (!node_opt) return false;
     
-    Node& node = *node_opt;
+    Node& node = **node_opt;
     node.output.type_id = new_type_id;
     
     return true;
@@ -182,7 +248,7 @@ bool NodeRegistry::add_parameter(uint64_t module_id, uint32_t node_id, const Nod
     auto node_opt = get_node(module_id, node_id);
     if (!node_opt) return false;
     
-    Node& node = *node_opt;
+    Node& node = **node_opt;
     
     // Check for duplicate
     std::string pname(param.name.data(), param.name.size());
@@ -221,200 +287,93 @@ bool NodeRegistry::remove_parameter(uint64_t module_id, uint32_t node_id, std::s
 }
 
 std::string NodeRegistry::to_json() const {
-    yyjson_mut_doc *doc = yyjson_mut_doc_new(nullptr);
-    yyjson_mut_val *root = yyjson_mut_arr(doc);
-    yyjson_mut_doc_set_root(doc, root);
+    std::vector<GlazeModule> glaze_modules;
+    glaze_modules.reserve(modules_.size());
     
     for (const auto& module : modules_) {
-        yyjson_mut_val *module_obj = yyjson_mut_obj(doc);
-        
-        yyjson_mut_obj_add_str(doc, module_obj, "name", module.name.data(), module.name.size());
-        yyjson_mut_obj_add_uint(doc, module_obj, "id", module.unique_id);
-        
-        // Add nodes
-        yyjson_mut_val *nodes_arr = yyjson_mut_arr(doc);
+        GlazeModule gm;
+        gm.name = std::string(module.name.ptr(), module.name.len());
+        gm.unique_id = module.unique_id;
         
         for (const auto& node : module.nodes) {
-            yyjson_mut_val *node_obj = yyjson_mut_obj(doc);
+            GlazeNode gn;
+            gn.id = node.id;
+            gn.kind = node.kind;
+            gn.name = std::string(node.name.ptr(), node.name.len());
+            gn.unique_id = node.unique_id;
+            if (node.source_location) gn.source_location = std::string(node.source_location->ptr(), node.source_location->len());
             
-            yyjson_mut_obj_add_str(doc, node_obj, "name", node.name.data(), node.name.size());
-            yyjson_mut_obj_add_uint(doc, node_obj, "id", node.id);
-            yyjson_mut_obj_add_uint(doc, node_obj, "kind", static_cast<uint32_t>(node.kind));
-            yyjson_mut_obj_add_uint(doc, node_obj, "unique_id", node.unique_id);
+            gn.output.name = std::string(node.output.name.ptr(), node.output.name.len());
+            gn.output.type_id = node.output.type_id;
             
-            // Add parameters
-            yyjson_mut_val *params_arr = yyjson_mut_arr(doc);
             for (const auto& param : node.parameters) {
-                yyjson_mut_val *param_obj = yyjson_mut_obj(doc);
-                yyjson_mut_obj_add_str(doc, param_obj, "name", param.name.data(), param.name.size());
-                yyjson_mut_obj_add_uint(doc, param_obj, "type_id", param.type_id);
-                
-                if (param.default_value.has_value()) {
-                    yyjson_mut_obj_add_str(doc, param_obj, "default",
-                        param.default_value.value().data(), param.default_value.value().size());
-                }
-                
-                yyjson_mut_arr_append(params_arr, param_obj);
+                GlazeNodeParameter gp;
+                gp.name = std::string(param.name.ptr(), param.name.len());
+                gp.type_id = param.type_id;
+                if (param.default_value) gp.default_value = std::string(param.default_value->ptr(), param.default_value->len());
+                gn.parameters.push_back(std::move(gp));
             }
-            yyjson_mut_obj_add_val(doc, node_obj, "parameters", params_arr);
             
-            // Add output
-            yyjson_mut_val *output_obj = yyjson_mut_obj(doc);
-            yyjson_mut_obj_add_str(doc, output_obj, "name", node.output.name.data(), node.output.name.size());
-            yyjson_mut_obj_add_uint(doc, output_obj, "type_id", node.output.type_id);
-            yyjson_mut_obj_add_val(doc, node_obj, "output", output_obj);
-            
-            // Add invocations
-            yyjson_mut_val *invocations_arr = yyjson_mut_arr(doc);
             for (const auto& inv : node.invocations) {
-                yyjson_mut_val *inv_obj = yyjson_mut_obj(doc);
-                yyjson_mut_obj_add_uint(doc, inv_obj, "target_node_id", inv.target_node_id);
-                yyjson_mut_obj_add_uint(doc, inv_obj, "argument_index", inv.argument_index);
-                yyjson_mut_arr_append(invocations_arr, inv_obj);
-            }
-            yyjson_mut_obj_add_val(doc, node_obj, "invocations", invocations_arr);
-            
-            // Add source location
-            if (node.source_location.has_value()) {
-                yyjson_mut_obj_add_str(doc, node_obj, "source_location",
-                    node.source_location.value().data(), node.source_location.value().size());
+                gn.invocations.push_back({inv.target_node_id, inv.argument_index});
             }
             
-            yyjson_mut_arr_append(nodes_arr, node_obj);
+            gm.nodes.push_back(std::move(gn));
         }
         
-        yyjson_mut_obj_add_val(doc, module_obj, "nodes", nodes_arr);
-        yyjson_mut_arr_append(root, module_obj);
+        glaze_modules.push_back(std::move(gm));
     }
     
-    size_t json_size = 0;
-    char *json_str = yyjson_mut_write(doc, 0, &json_size);
-    std::string result(json_str, json_size);
-    
-    free(json_str);
-    yyjson_mut_doc_free(doc);
-    
-    return result;
+    std::string json;
+    glz::write_json(glaze_modules, json);
+    return json;
 }
 
 bool NodeRegistry::from_json(std::string_view json_str) {
-    yyjson_doc *doc = yyjson_read(json_str.data(), json_str.size(), 0);
-    if (!doc) return false;
-    
-    yyjson_val *root = yyjson_doc_get_root(doc);
-    if (!yyjson_is_arr(root)) {
-        yyjson_doc_free(doc);
-        return false;
-    }
+    std::vector<GlazeModule> glaze_modules;
+    auto ec = glz::read_json(glaze_modules, json_str);
+    if (ec) return false;
     
     clear();
     
-    yyjson_arr_iter iter = yyjson_arr_iter_with(root);
-    yyjson_val *module_obj;
-    while ((module_obj = yyjson_arr_iter_next(&iter))) {
+    for (const auto& gm : glaze_modules) {
         Module module;
+        module.name = alloc_str(gm.name);
+        module.unique_id = gm.unique_id;
+        next_module_id_ = std::max(next_module_id_, module.unique_id + 1);
         
-        yyjson_val *name_val = yyjson_obj_get(module_obj, "name");
-        if (name_val) module.name = alloc_str(yyjson_get_str(name_val));
-        
-        yyjson_val *id_val = yyjson_obj_get(module_obj, "id");
-        if (id_val) {
-            module.unique_id = yyjson_get_uint(id_val);
-            next_module_id_ = std::max(next_module_id_, module.unique_id + 1);
-        }
-        
-        // Read nodes
-        yyjson_val *nodes_arr = yyjson_obj_get(module_obj, "nodes");
-        if (nodes_arr && yyjson_is_arr(nodes_arr)) {
-            yyjson_arr_iter nodes_iter = yyjson_arr_iter_with(nodes_arr);
-            yyjson_val *node_obj;
-            while ((node_obj = yyjson_arr_iter_next(&nodes_iter))) {
-                Node node;
-                
-                yyjson_val *node_name = yyjson_obj_get(node_obj, "name");
-                if (node_name) node.name = alloc_str(yyjson_get_str(node_name));
-                
-                yyjson_val *node_id = yyjson_obj_get(node_obj, "id");
-                if (node_id) node.id = static_cast<uint32_t>(yyjson_get_uint(node_id));
-                
-                yyjson_val *node_kind = yyjson_obj_get(node_obj, "kind");
-                if (node_kind) node.kind = static_cast<Node::Kind>(yyjson_get_uint(node_kind));
-                
-                yyjson_val *node_uid = yyjson_obj_get(node_obj, "unique_id");
-                if (node_uid) {
-                    node.unique_id = yyjson_get_uint(node_uid);
-                    next_unique_id_ = std::max(next_unique_id_, node.unique_id + 1);
-                }
-                
-                // Read parameters
-                yyjson_val *params_arr = yyjson_obj_get(node_obj, "parameters");
-                if (params_arr && yyjson_is_arr(params_arr)) {
-                    yyjson_arr_iter params_iter = yyjson_arr_iter_with(params_arr);
-                    yyjson_val *param_val;
-                    while ((param_val = yyjson_arr_iter_next(&params_iter))) {
-                        NodeParameter param;
-                        
-                        yyjson_val *pname = yyjson_obj_get(param_val, "name");
-                        if (pname) param.name = alloc_str(yyjson_get_str(pname));
-                        
-                        yyjson_val *ptype = yyjson_obj_get(param_val, "type_id");
-                        if (ptype) param.type_id = yyjson_get_uint(ptype);
-                        
-                        yyjson_val *pdef = yyjson_obj_get(param_val, "default");
-                        if (pdef && yyjson_is_str(pdef)) {
-                            param.default_value = alloc_str(yyjson_get_str(pdef));
-                        }
-                        
-                        node.parameters.push_back(param);
-                    }
-                }
-                
-                // Read output
-                yyjson_val *output_val = yyjson_obj_get(node_obj, "output");
-                if (output_val && yyjson_is_obj(output_val)) {
-                    yyjson_val *oname = yyjson_obj_get(output_val, "name");
-                    if (oname) node.output.name = alloc_str(yyjson_get_str(oname));
-                    
-                    yyjson_val *otype = yyjson_obj_get(output_val, "type_id");
-                    if (otype) node.output.type_id = yyjson_get_uint(otype);
-                }
-                
-                // Read invocations
-                yyjson_val *invocations_arr = yyjson_obj_get(node_obj, "invocations");
-                if (invocations_arr && yyjson_is_arr(invocations_arr)) {
-                    yyjson_arr_iter inv_iter = yyjson_arr_iter_with(invocations_arr);
-                    yyjson_val *inv_val;
-                    while ((inv_val = yyjson_arr_iter_next(&inv_iter))) {
-                        NodeInvocation inv;
-                        
-                        yyjson_val *target = yyjson_obj_get(inv_val, "target_node_id");
-                        if (target) inv.target_node_id = static_cast<uint32_t>(yyjson_get_uint(target));
-                        
-                        yyjson_val *arg_idx = yyjson_obj_get(inv_val, "argument_index");
-                        if (arg_idx) inv.argument_index = static_cast<uint32_t>(yyjson_get_uint(arg_idx));
-                        
-                        node.invocations.push_back(inv);
-                    }
-                }
-                
-                // Read source location
-                yyjson_val *src_loc = yyjson_obj_get(node_obj, "source_location");
-                if (src_loc && yyjson_is_str(src_loc)) {
-                    node.source_location = alloc_str(yyjson_get_str(src_loc));
-                }
-                
-                std::string nname(node.name.data(), node.name.size());
-                module.name_to_node_id[nname] = node.id;
-                module.nodes.push_back(node);
+        for (const auto& gn : gm.nodes) {
+            Node node;
+            node.id = gn.id;
+            node.kind = gn.kind;
+            node.name = alloc_str(gn.name);
+            node.unique_id = gn.unique_id;
+            next_unique_id_ = std::max(next_unique_id_, node.unique_id + 1);
+            if (gn.source_location) node.source_location = alloc_str(*gn.source_location);
+            
+            node.output.name = alloc_str(gn.output.name);
+            node.output.type_id = gn.output.type_id;
+            
+            for (const auto& gp : gn.parameters) {
+                NodeParameter param;
+                param.name = alloc_str(gp.name);
+                param.type_id = gp.type_id;
+                if (gp.default_value) param.default_value = alloc_str(*gp.default_value);
+                node.parameters.push_back(param);
             }
+            
+            for (const auto& gi : gn.invocations) {
+                node.invocations.push_back({gi.target_node_id, gi.argument_index});
+            }
+            
+            module.name_to_node_id[std::string(node.name.ptr(), node.name.len())] = static_cast<uint32_t>(module.nodes.size());
+            module.nodes.push_back(node);
         }
         
-        std::string mname(module.name.data(), module.name.size());
-        name_to_module_id_[mname] = module.unique_id;
+        name_to_module_id_[std::string(module.name.ptr(), module.name.len())] = module.unique_id;
         modules_.push_back(module);
     }
     
-    yyjson_doc_free(doc);
     return true;
 }
 
@@ -443,116 +402,57 @@ void NodeRegistry::clear() {
 }
 
 // ============================================================================
-// PROJECT REGISTRY IMPLEMENTATION
+// COMBINED REGISTRY IMPLEMENTATION
 // ============================================================================
 
 ProjectRegistry::ProjectRegistry(Arena& arena)
     : arena_(arena), type_registry_(arena), node_registry_(arena, type_registry_) {}
 
 bool ProjectRegistry::rename_global_type(uint64_t type_id, std::string_view new_name) {
-    // Rename in type registry
-    if (!type_registry_.rename_type(type_id, new_name)) {
-        return false;
-    }
-    
-    // Update all references in nodes
-    auto type_opt = type_registry_.get_type(type_id);
-    if (!type_opt) return false;
-    
-    std::string new_name_str(new_name.data(), new_name.size());
-    
-    /*
-    for (auto& module : node_registry_.get_modules()) {
-        for (auto& node : module.nodes) {
-            // Update parameter types
-            for (auto& param : node.parameters) {
-                // This would be handled more elegantly by looking up type references
-            }
-        }
-    }
-    */
-    
+    if (!type_registry_.rename_type(type_id, new_name)) return false;
     return true;
 }
 
-bool ProjectRegistry::rename_struct_member(uint64_t type_id, std::string_view old_member_name,
+bool ProjectRegistry::rename_struct_member(uint64_t type_id, std::string_view old_member_name, 
                                          std::string_view new_member_name) {
     if (!type_registry_.rename_member(type_id, old_member_name, new_member_name)) {
         return false;
     }
-    
-    // Note: Updating nodes would require semantic analysis to track which nodes
-    // access this member. This is deferred to semantic analyzer.
-    
     return true;
 }
 
 std::string ProjectRegistry::to_json() const {
-    yyjson_mut_doc *doc = yyjson_mut_doc_new(0);
-    yyjson_mut_val *root = yyjson_mut_obj(doc);
-    yyjson_mut_doc_set_root(doc, root);
-    
-    // Serialize types
-    std::string types_json = type_registry_.to_json();
-    yyjson_doc *types_doc = yyjson_read(types_json.c_str(), types_json.size(), 0);
-    if (types_doc) {
-        yyjson_val *types_root = yyjson_doc_get_root(types_doc);
-        yyjson_mut_val *types_mut = yyjson_val_mut_copy(doc, types_root);
-        yyjson_mut_obj_add_val(doc, root, "types", types_mut);
-        yyjson_doc_free(types_doc);
-    }
-    
-    // Serialize nodes
-    std::string nodes_json = node_registry_.to_json();
-    yyjson_doc *nodes_doc = yyjson_read(nodes_json.c_str(), nodes_json.size(), 0);
-    if (nodes_doc) {
-        yyjson_val *nodes_root = yyjson_doc_get_root(nodes_doc);
-        yyjson_mut_val *nodes_mut = yyjson_val_mut_copy(doc, nodes_root);
-        yyjson_mut_obj_add_val(doc, root, "nodes", nodes_mut);
-        yyjson_doc_free(nodes_doc);
-    }
-    
-    size_t json_size = 0;
-    char *json_str = yyjson_mut_write(doc, 0, &json_size);
-    std::string result(json_str, json_size);
-    
-    free(json_str);
-    yyjson_mut_doc_free(doc);
-    
-    return result;
+    return std::string(R"({"types":)") + type_registry_.to_json() + R"(,"nodes":)" + node_registry_.to_json() + "}";
 }
 
+struct GlazeProject {
+    glz::raw_json types;
+    glz::raw_json nodes;
+};
+} // namespace ibex
+
+template <> struct glz::meta<ibex::GlazeProject> {
+    using T = ibex::GlazeProject;
+    static constexpr auto value = object("types", &T::types, "nodes", &T::nodes);
+};
+
+namespace ibex {
+
 bool ProjectRegistry::from_json(std::string_view json_str) {
-    yyjson_doc *doc = yyjson_read(json_str.data(), json_str.size(), 0);
-    if (!doc) return false;
-    
-    yyjson_val *root = yyjson_doc_get_root(doc);
-    if (!yyjson_is_obj(root)) {
-        yyjson_doc_free(doc);
-        return false;
-    }
+    GlazeProject project;
+    auto ec = glz::read_json(project, json_str);
+    if (ec) return false;
     
     clear();
     
-    // Load types
-    yyjson_val *types_arr = yyjson_obj_get(root, "types");
-    if (types_arr) {
-        size_t json_size = 0;
-        char *types_json = yyjson_val_write(types_arr, 0, &json_size);
-        type_registry_.from_json(std::string_view(types_json, json_size));
-        free(types_json);
+    if (!project.types.str.empty()) {
+        if (!type_registry_.from_json(project.types.str)) return false;
     }
     
-    // Load nodes
-    yyjson_val *nodes_arr = yyjson_obj_get(root, "nodes");
-    if (nodes_arr) {
-        size_t json_size = 0;
-        char *nodes_json = yyjson_val_write(nodes_arr, 0, &json_size);
-        node_registry_.from_json(std::string_view(nodes_json, json_size));
-        free(nodes_json);
+    if (!project.nodes.str.empty()) {
+        if (!node_registry_.from_json(project.nodes.str)) return false;
     }
     
-    yyjson_doc_free(doc);
     return true;
 }
 

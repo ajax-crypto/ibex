@@ -42,7 +42,8 @@ int main(int argc, char* argv[]) {
     std::cout << "Tokenized " << tokens.size() << " tokens\n";
 
     // Parsing
-    ibex::Parser parser(tokens);
+    ibex::Arena ast_arena;
+    ibex::ParserNew parser(tokens, ast_arena);
     auto ast = parser.parse_program();
 
     if (!parser.get_errors().empty()) {
@@ -56,11 +57,11 @@ int main(int argc, char* argv[]) {
     std::cout << "Parsed " << ast.size() << " declarations\n";
 
     // Initialize type registry
-    ibex::TypeRegistry registry;
+    ibex::TypeRegistry registry(parser.program().arena());
     std::cout << "Type registry initialized\n";
 
     // Semantic analysis
-    ibex::SemanticAnalyzer semantic_analyzer(parser.get_program(), registry);
+    ibex::SemanticAnalyzer semantic_analyzer(parser.program(), registry);
     if (!semantic_analyzer.analyze()) {
         std::cerr << "Semantic errors:\n";
         for (const auto& error : semantic_analyzer.get_errors()) {
