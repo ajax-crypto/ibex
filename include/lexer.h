@@ -17,6 +17,7 @@ enum class TokenType {
     STRING_LITERAL,
     TRUE_LITERAL,
     FALSE_LITERAL,
+    NULL_LITERAL,
 
     // Keywords
     STRUCT,         // struct
@@ -36,6 +37,7 @@ enum class TokenType {
     PUBLIC,         // public
     PROTECTED,      // protected
     STATIC,         // static
+    CONST_KW,       // const
     AS,             // as (type casting)
 
     // Primitive types

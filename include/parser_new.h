@@ -91,7 +91,7 @@ private:
     DeclHandle parse_enum_decl();
     DeclHandle parse_flag_decl();
     DeclHandle parse_function_binding_decl();
-    DeclHandle parse_variable_decl();
+    DeclHandle parse_variable_decl(bool is_const = false);
 
     // ========================================================================
     // STATEMENTS
@@ -103,7 +103,7 @@ private:
     StmtHandle parse_if_statement();
     StmtHandle parse_while_statement();
     StmtHandle parse_for_statement();
-    StmtHandle parse_var_decl_statement();
+    StmtHandle parse_var_decl_statement(bool is_const = false);
     StmtHandle parse_expression_statement();
 
     // ========================================================================

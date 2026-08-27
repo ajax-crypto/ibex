@@ -1,0 +1,299 @@
+// 1. Empty struct
+struct Empty {}
+
+// 2. Struct with inheritance and offset
+struct Base { x: i32; }
+struct Derived : Base { [[offset:4]] y: i32; }
+
+// 3. Flags and Enums
+flag Permissions { Read, Write, Execute }
+flag ExtPerms : Permissions { Admin = Read or Write }
+
+enum Colors { Red = 1, Green = 2, Blue = 3 }
+enum MoreColors : Colors { Yellow }
+
+// 4. Variables and constants
+const global_var: i32 = 100;
+mut_var: i32 = 200;
+auto_var := 300;
+
+// 5. Function with complex parameters
+complex_func: (const a: i32, b: f32 {1.0}, c: *i32) -> i32 {
+    return a + b as i32;
+}
+
+// 6. Named arguments in function call
+test_call: () -> void {
+    complex_func(a=1, c=null, b=2.5);
+}
+
+// 7. Array and slice types
+arr_var: [10]i32;
+slice_var: []i32;
+ptr_var: *i32;
+ref_var: &i32;
+
+// 8. Nested pointers and arrays
+nested: *[]*[5]i32;
+
+// 9. If-else chains
+test_if: (x: i32) -> void {
+    if x == 1 {
+    } else if x == 2 {
+    } else {
+    }
+}
+
+// 10. While loops with else
+test_while: () -> void {
+    while true {
+        break;
+        continue;
+    } else {
+    }
+}
+
+// 11. For loops with else
+test_for: () -> void {
+    for i in range(0, 10) {
+    } else {
+    }
+}
+
+// 12. Const scopes
+test_const_scopes: () -> void {
+    a: i32 = 1;
+    b: i32 = 2;
+    const (a);
+    const (a, b) {
+        c: i32 = a + b;
+    }
+}
+
+// 13. Expressions precedence
+expr_test: () -> i32 {
+    return 1 + 2 * 3 / 4 - 5 % 6 & 7 | 8 ^ 9 << 1 >> 2 == 3 != 4 < 5 > 6 <= 7 >= 8 && 9 || 10;
+}
+
+// 14. Unary operations
+unary_test: () -> i32 {
+    return -1 + +2 + ~3 + !4;
+}
+
+// 15. Pointer operations
+ptr_test: (p: *i32) -> i32 {
+    a := *p;
+    b := &a;
+    return *b;
+}
+
+// 16. Alloc and Free
+mem_test: () -> void {
+    p := @alloc(i32);
+    arr := @alloc_vec(i32, 10);
+    // free not implemented
+}
+
+// 17. Struct initialization
+struct Point { x: i32; y: i32; }
+init_test: () -> void {
+    p1 := Point{1, 2};
+    p2 := Point{x=1, y=2};
+}
+
+// 18. Multi-assignment / Tuple return? 
+// (Assuming not supported, but let's test assignment)
+assign_test: () -> void {
+    a := 1;
+    a += 1;
+    a -= 1;
+    a *= 1;
+    a /= 1;
+}
+
+// 19. Array literals
+arr_lit_test: () -> void {
+    arr := [1, 2, 3, 4, 5];
+}
+
+// 20. Slice expressions
+slice_expr_test: () -> void {
+    arr := [1, 2, 3];
+    s1 := arr[0:2];
+}
+
+// 21. Index expressions
+index_test: () -> void {
+    arr := [1, 2, 3];
+    v := arr[1];
+}
+
+// 22. Member access
+member_test: () -> void {
+    p := Point{1, 2};
+    x := p.x;
+}
+
+// 23. Type member access
+type_member_test: () -> void {
+    m := Permissions.Read;
+}
+
+// 24. Cast expressions
+cast_test: () -> void {
+    x := 1.5 as i32;
+}
+
+// 25. Block statements
+block_expr_test: () -> void {
+    { 
+        a := 1; 
+        b := 2; 
+    }
+}
+
+// 26. Deeply nested blocks
+nested_blocks: () -> void {
+    {
+        {
+            {
+                x := 1;
+            }
+        }
+    }
+}
+
+// 27. Deeply nested binary ops
+deep_bin: () -> i32 {
+    return 1+(1+(1+(1+(1+(1+(1+(1+(1+1))))))));
+}
+
+// 28. Empty function
+empty_func: () -> void {}
+
+// 29. Missing return (should parse fine, maybe semantic error)
+no_ret: () -> i32 {}
+
+// 30. Trailing commas in arrays
+trailing_array: () -> void {
+    a := [1, 2, 3,];
+}
+
+// 31. Trailing commas in function calls
+trailing_call: () -> void {
+    complex_func(1, 2.0, null,);
+}
+
+// 32. Trailing commas in struct init
+trailing_struct: () -> void {
+    p := Point{x=1, y=2,};
+}
+
+// 33. Flag bitwise initialization
+flag CombinedFlags {
+    A = 1,
+    B = 2,
+    C = A or B,
+    D = A and B,
+    E = A xor B,
+    F = complement A
+}
+
+// 34. Mixed designated and positional struct init
+struct_mixed: () -> void {
+    p := Point{1, y=2};
+}
+
+// 35. Complex condition if
+complex_if: () -> void {
+    if (1 == 1) && (2 == 2) || (3 == 3) {
+    }
+}
+
+// 36. Pointer to array of pointers
+ptr_arr_ptr: () -> void {
+    var: *[10]*i32;
+}
+
+// 37. Empty array literal
+empty_arr: () -> void {
+    a := [];
+}
+
+// 38. Nested struct declarations (not supported inside functions, but at global scope)
+struct Outer {
+    inner: Inner;
+}
+struct Inner {
+    val: i32;
+}
+
+// 39. Function returning pointer
+ret_ptr: () -> *i32 {
+    return null;
+}
+
+// 40. Function returning slice
+ret_slice: () -> []i32 {
+    return null;
+}
+
+// 41. Constant expressions in array size
+arr_size: () -> void {
+    a: [10 + 5]i32;
+}
+
+// 42. Multi-line expressions
+multi_line: () -> i32 {
+    return 1 +
+           2 +
+           3;
+}
+
+// 43. Negative numbers and floats
+neg_nums: () -> void {
+    a := -1;
+    b := -1.5;
+    c := 0.5;
+}
+
+// 44. String literals with escapes
+strings: () -> void {
+    s := "hello\nworld\"";
+}
+
+// 45. Char literals (not supported, using strings)
+chars: () -> void {
+    c := "a";
+    n := "\n";
+}
+
+// 46. Bool literals
+bools: () -> void {
+    t := true;
+    f := false;
+}
+
+// 47. Empty return
+empty_ret: () -> void {
+    return;
+}
+
+// 48. Const block with multiple vars
+test_multiple_const: () -> void {
+    a := 1;
+    b := 2;
+    const (a, b);
+}
+
+// 49. Const scope with multiple vars
+test_multiple_const_scope: () -> void {
+    a := 1; b := 2;
+    const (a, b) {
+        c := a + b;
+    }
+}
+
+// 50. Complex type parsing
+complex_types: (a: *[]&*[5]i32) -> void {}
+

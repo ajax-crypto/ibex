@@ -1,7 +1,7 @@
-# Implementation Complete: Six New Language Features
+# Implementation Complete: Six New Language Features and Parser Fixes
 
-Date: April 6, 2026  
-Status: Parser & AST Implementation Complete (Semantic Analysis Still Needed)
+Date: August 27, 2026
+Status: Parser & AST Implementation Complete (Parser Corner Cases Fixed, Semantic Analysis Still Needed)
 
 ---
 
@@ -328,3 +328,15 @@ All six features have been successfully implemented at the parser and AST level.
 - ✅ Convenient string conversion for enums and flags
 
 Ready for semantic analysis and code generation phases.
+
+## Feature 7: Const Features
+
+**Requirement**: Variable immutability, const blocks, const scopes, const parameters
+
+**Implementation**:
+- Added const token to lexer
+- Added ConstBlockStmt and ConstModifierStmt to AST
+- Added parse_variable_decl(is_const) and parameter parsing for const keywords
+- Semantic Analyzer checks for mutations in assignments and shadows symbols during const scopes
+
+**Status**: :white_check_mark: Complete

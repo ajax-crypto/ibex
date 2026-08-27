@@ -5,26 +5,29 @@
 #include "semantic_analyzer.h"
 #include "type_registry.h"
 
-int main() {
+#include <fstream>
+#include <sstream>
+
+int main(int argc, char** argv) {
     ibex::Arena arena;
     ibex::Program program(arena);
     
-    std::string_view code = R"(
-        flag Permissions {
-            Read,
-            Write,
-            Execute
+    std::string code_str;
+    if (argc > 1) {
+        std::ifstream file(argv[1]);
+        if (!file.is_open()) {
+            std::cerr << "Could not open file: " << argv[1] << "\n";
+            return 1;
         }
-
-        flag SuperPermissions : Permissions {
-            Admin,
-            Root = Admin or Execute
-        }
-
-        struct User {
-            perms: Permissions;
-        }
-    )";
+        std::stringstream buffer;
+        buffer << file.rdbuf();
+        code_str = buffer.str();
+    } else {
+        code_str = R"(
+            flag Permissions { Read, Write, Execute }
+        )";
+    }
+    std::string_view code = code_str;
     
     std::cerr << "Lexing...\n" << std::flush;
     ibex::Lexer lexer(code);

@@ -68,6 +68,8 @@ public:
     virtual void visit(const ContinueStmt& stmt) = 0;
     virtual void visit(const ExprStmt& stmt) = 0;
     virtual void visit(const VarDeclStmt& stmt) = 0;
+    virtual void visit(const ConstBlockStmt& stmt) = 0;
+    virtual void visit(const ConstModifierStmt& stmt) = 0;
 };
 
 inline void visit_stmt(const Stmt& stmt, StmtVisitor* visitor) {

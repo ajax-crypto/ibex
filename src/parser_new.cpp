@@ -1,4 +1,5 @@
 #include "parser_new.h"
+#include <iostream>
 #include <cctype>
 #include <algorithm>
 
@@ -52,11 +53,13 @@ Token ParserNew::advance() {
     if (!is_at_end()) {
         current_++;
     }
+    std::cerr << "Parser advanced past: '" << tokens_[current_ - 1].lexeme << "'\n";
     return tokens_[current_ - 1];
 }
 
 void ParserNew::error(std::string_view message) {
-    std::string err_msg(message);
+    Token t = current();
+    std::string err_msg = "Line " + std::to_string(t.line) + ": " + std::string(message);
     errors_.push_back(err_msg);
 }
 
@@ -143,6 +146,13 @@ DeclHandle ParserNew::parse_declaration() {
         return parse_function_binding_decl();
     }
 
+    if (check(TokenType::CONST_KW)) {
+        if (peek().type != TokenType::LPAREN) {
+            advance(); // consume const
+            return parse_variable_decl(true);
+        }
+    }
+
     // Check for name: ... pattern
     if (check(TokenType::IDENTIFIER)) {
         size_t save_pos = current_;
@@ -216,6 +226,13 @@ DeclHandle ParserNew::parse_function_decl() {
         auto stmt = parse_statement();
         if (!stmt.is_null()) {
             body_stmts.push_back(stmt);
+        } else {
+            // Panic mode recovery
+            advance();
+            while (!check(TokenType::RBRACE) && !check(TokenType::SEMICOLON) && !is_at_end()) {
+                advance();
+            }
+            if (check(TokenType::SEMICOLON)) advance();
         }
     }
 
@@ -357,29 +374,28 @@ DeclHandle ParserNew::parse_enum_decl() {
 
     Str enum_name = alloc_str(advance().lexeme);
 
-    if (!match(TokenType::COLON)) {
-        error("Expected ':' after enum name");
-        return DeclHandle();
-    }
-
-    // The token after ':' could be a primitive type or another enum name
-    // We parse it as a type first, but track if it's an identifier (potential enum name)
     TypeHandle base_type;
     std::optional<Str> extends;
     
-    if (is_primitive_type()) {
-        base_type = parse_type();
-    } else if (check(TokenType::IDENTIFIER)) {
-        // Could be an enum to extend - parse the identifier
-        Str base_name = alloc_str(advance().lexeme);
-        extends = base_name;
-        
-        // For now, we'll create a NamedType for the base_type (will be resolved later)
-        Type named_type = NamedType{.name = base_name};
-        base_type = store_type(named_type);
+    if (match(TokenType::COLON)) {
+        if (is_primitive_type()) {
+            base_type = parse_type();
+        } else if (check(TokenType::IDENTIFIER)) {
+            // Could be an enum to extend - parse the identifier
+            Str base_name = alloc_str(advance().lexeme);
+            extends = base_name;
+            
+            // For now, we'll create a NamedType for the base_type (will be resolved later)
+            Type named_type = NamedType{.name = base_name};
+            base_type = store_type(named_type);
+        } else {
+            error("Expected type or enum name after ':'");
+            return DeclHandle();
+        }
     } else {
-        error("Expected type or enum name after ':'");
-        return DeclHandle();
+        // Default base type is i32
+        Type primitive = PrimitiveType{.primitive = TokenType::I32};
+        base_type = store_type(primitive);
     }
 
     if (!match(TokenType::LBRACE)) {
@@ -572,7 +588,7 @@ DeclHandle ParserNew::parse_function_binding_decl() {
     return store_decl(decl);
 }
 
-DeclHandle ParserNew::parse_variable_decl() {
+DeclHandle ParserNew::parse_variable_decl(bool is_const) {
     if (!check(TokenType::IDENTIFIER)) {
         error("Expected variable name");
         return DeclHandle();
@@ -580,23 +596,24 @@ DeclHandle ParserNew::parse_variable_decl() {
 
     Str var_name = alloc_str(advance().lexeme);
     std::optional<TypeHandle> var_type;
-    bool is_const = false;
+    std::optional<ExprHandle> initializer;
 
     if (match(TokenType::COLON_EQUAL)) {
         // Type deduction: name := value;
         var_type = std::nullopt;
+        initializer = parse_expression();
     } else if (match(TokenType::COLON)) {
         // Explicit type: name: type = value;
         var_type = parse_type();
+        if (match(TokenType::EQUAL)) {
+            initializer = parse_expression();
+        }
     } else {
         error("Expected ':' or ':=' after variable name");
         return DeclHandle();
     }
 
-    std::optional<ExprHandle> initializer;
-    if (match(TokenType::EQUAL)) {
-        initializer = parse_expression();
-    } else if (!var_type) {
+    if (!var_type && !initializer) {
         error("Variable with type deduction requires initializer");
         return DeclHandle();
     }
@@ -620,6 +637,11 @@ std::vector<FunctionParameter> ParserNew::parse_parameter_list() {
     std::vector<FunctionParameter> params;
 
     while (!check(TokenType::RPAREN)) {
+        bool is_const = false;
+        if (match(TokenType::CONST_KW)) {
+            is_const = true;
+        }
+        
         if (!check(TokenType::IDENTIFIER)) {
             error("Expected parameter name");
             return params;
@@ -645,7 +667,8 @@ std::vector<FunctionParameter> ParserNew::parse_parameter_list() {
         params.push_back(FunctionParameter{
             .name = param_name,
             .type = param_type,
-            .default_value = default_value
+            .default_value = default_value,
+            .is_const = is_const
         });
 
         if (!check(TokenType::RPAREN)) {
@@ -691,6 +714,38 @@ StmtHandle ParserNew::parse_statement() {
         return store_stmt(ContinueStmt{});
     }
 
+    if (match(TokenType::CONST_KW)) {
+        if (match(TokenType::LPAREN)) {
+            std::vector<Str> vars;
+            do {
+                if (check(TokenType::IDENTIFIER)) {
+                    vars.push_back(alloc_str(advance().lexeme));
+                } else {
+                    error("Expected variable name in const()");
+                    break;
+                }
+            } while (match(TokenType::COMMA));
+            
+            if (!match(TokenType::RPAREN)) {
+                error("Expected ')' after const variables");
+            }
+            
+            if (match(TokenType::SEMICOLON)) {
+                std::span<Str> vars_span = program_.allocate_array(vars);
+                return store_stmt(ConstModifierStmt{vars_span});
+            } else if (match(TokenType::LBRACE)) {
+                auto body = parse_block_statement();
+                std::span<Str> vars_span = program_.allocate_array(vars);
+                return store_stmt(ConstBlockStmt{vars_span, body});
+            } else {
+                error("Expected ';' or '{' after const(...)");
+                return StmtHandle();
+            }
+        } else {
+            return parse_var_decl_statement(true);
+        }
+    }
+
     // Check for variable declaration
     if (check(TokenType::IDENTIFIER)) {
         size_t save_pos = current_;
@@ -713,6 +768,13 @@ StmtHandle ParserNew::parse_block_statement() {
         auto stmt = parse_statement();
         if (!stmt.is_null()) {
             stmts.push_back(stmt);
+        } else {
+            // Panic mode recovery
+            advance();
+            while (!check(TokenType::RBRACE) && !check(TokenType::SEMICOLON) && !is_at_end()) {
+                advance();
+            }
+            if (check(TokenType::SEMICOLON)) advance();
         }
     }
 
@@ -778,7 +840,7 @@ StmtHandle ParserNew::parse_while_statement() {
     // Parse optional else block
     std::optional<StmtHandle> else_branch;
     if (match(TokenType::ELSE)) {
-        if (check(TokenType::LBRACE)) {
+        if (match(TokenType::LBRACE)) {
             else_branch = parse_block_statement();
         } else {
             error("Expected '{' after else");
@@ -814,7 +876,7 @@ StmtHandle ParserNew::parse_for_statement() {
     // Parse optional else block
     std::optional<StmtHandle> else_branch;
     if (match(TokenType::ELSE)) {
-        if (check(TokenType::LBRACE)) {
+        if (match(TokenType::LBRACE)) {
             else_branch = parse_block_statement();
         } else {
             error("Expected '{' after else");
@@ -825,19 +887,39 @@ StmtHandle ParserNew::parse_for_statement() {
     return store_stmt(ForStmt{loop_var, range_expr, body, else_branch});
 }
 
-StmtHandle ParserNew::parse_var_decl_statement() {
-    auto decl_handle = parse_variable_decl();
+StmtHandle ParserNew::parse_var_decl_statement(bool is_const) {
+    auto decl_handle = parse_variable_decl(is_const);
     
-    // Convert declaration handle to statement (if needed)
-    // For now, return a null statement (this is a simplified version)
+    if (decl_handle.is_null()) {
+        return StmtHandle();
+    }
+    
+    // Retrieve the parsed VariableDecl from the program
+    if (auto* var_decl = std::get_if<VariableDecl>(&program_.declarations[decl_handle.index])) {
+        VarDeclStmt stmt{
+            .name = var_decl->name,
+            .type = var_decl->type,
+            .initializer = var_decl->initializer,
+            .is_const = var_decl->is_const
+        };
+        return store_stmt(stmt);
+    }
+    
     return StmtHandle();
 }
 
 StmtHandle ParserNew::parse_expression_statement() {
     auto expr = parse_expression();
     
+    if (expr.is_null()) {
+        return StmtHandle();
+    }
+    
     if (!match(TokenType::SEMICOLON)) {
         // Allow implicit semicolon at end of block
+        if (!check(TokenType::RBRACE) && !is_at_end()) {
+            error("Expected ';' after expression");
+        }
     }
     
     return store_stmt(ExprStmt{expr});
@@ -854,9 +936,15 @@ ExprHandle ParserNew::parse_expression() {
 ExprHandle ParserNew::parse_assignment() {
     auto expr = parse_logical_or();
     
-    if (match(TokenType::EQUAL)) {
+    TokenType op = current().type;
+    if (op == TokenType::EQUAL || op == TokenType::PLUS_EQUAL || 
+        op == TokenType::MINUS_EQUAL || op == TokenType::STAR_EQUAL || 
+        op == TokenType::SLASH_EQUAL) {
+        advance();
         auto right = parse_assignment();
-        // Simplified: ignore assignment, return left
+        // Return a dummy BinaryExpr or AssignmentExpr
+        // We'll use AssignmentExpr if it exists, or just return expr
+        return expr;
     }
     
     return expr;
@@ -990,7 +1078,7 @@ ExprHandle ParserNew::parse_multiplication() {
 
 ExprHandle ParserNew::parse_unary() {
     if (match(TokenType::BANG) || match(TokenType::MINUS) || match(TokenType::STAR) ||
-        match(TokenType::AMPERSAND)) {
+        match(TokenType::AMPERSAND) || match(TokenType::PLUS) || match(TokenType::TILDE)) {
         TokenType op = tokens_[current_ - 1].type;
         auto right = parse_unary();
         UnaryExpr unop{op, right};
@@ -1009,9 +1097,10 @@ ExprHandle ParserNew::parse_postfix() {
             auto cast_type = parse_type();
             CastExpr cast{expr, cast_type};
             expr = store_expr(cast);
-        } else if (match(TokenType::LBRACE)) {
+        } else if (check(TokenType::LBRACE)) {
             // Check if expr is an identifier and this is struct initialization
             if (std::holds_alternative<IdentifierExpr>(program_.expressions[expr.index])) {
+                advance(); // consume {
                 IdentifierExpr& id_expr = std::get<IdentifierExpr>(program_.expressions[expr.index]);
                 
                 // Parse as struct initialization: Point { x: 10, y: 20 }
@@ -1025,32 +1114,27 @@ ExprHandle ParserNew::parse_postfix() {
                     std::string field_name;
                     
                     if (check(TokenType::IDENTIFIER)) {
-                        Token field_token = advance();
-                        field_name = std::string(field_token.lexeme);
-                        
-                        if (match(TokenType::COLON)) {
+                        Token name_tok = advance();
+                        if (match(TokenType::COLON) || match(TokenType::EQUAL)) {
                             is_named = true;
+                            field_name = name_tok.lexeme;
                         } else {
-                            // Not a named field,could be indexed initializer
-                            current_ = save_pos;
+                            current_ = save_pos; // Reset
                         }
                     }
-                    
-                    ExprHandle value_expr = parse_expression();
                     
                     if (is_named) {
+                        auto val_expr = parse_expression();
                         field_values.push_back(NamedArg{
                             .name = alloc_str(field_name),
-                            .value = value_expr
+                            .value = val_expr
                         });
                     } else {
-                        positional_values.push_back(value_expr);
+                        positional_values.push_back(parse_expression());
                     }
                     
-                    if (!check(TokenType::RBRACE)) {
-                        if (!match(TokenType::COMMA)) {
-                            error("Expected ',' or '}' in struct initializer");
-                        }
+                    if (!match(TokenType::COMMA)) {
+                        break;
                     }
                 }
                 
@@ -1058,16 +1142,14 @@ ExprHandle ParserNew::parse_postfix() {
                     error("Expected '}' after struct initializer");
                 }
                 
-                std::span<NamedArg> fields_span = program_.allocate_array(field_values);
-                std::span<ExprHandle> positional_span = program_.allocate_array(positional_values);
-                StructInitExpr struct_init{
-                    .type_name = id_expr.name,
-                    .field_values = fields_span,
-                    .positional_values = positional_span
-                };
-                expr = store_expr(struct_init);
+                StructInitExpr init;
+                init.type_name = id_expr.name;
+                init.field_values = program_.allocate_array(field_values);
+                init.positional_values = program_.allocate_array(positional_values);
+                expr = store_expr(init);
             } else {
-                error("Struct initializer requires a type name");
+                // Not an identifier, so this '{' is not for struct initialization.
+                // It's probably the start of a block (like in if/while loops).
                 break;
             }
         } else if (match(TokenType::LPAREN)) {
@@ -1216,6 +1298,11 @@ ExprHandle ParserNew::parse_primary() {
         return store_expr(lit);
     }
     
+    if (match(TokenType::NULL_LITERAL)) {
+        LiteralExpr lit{LiteralExpr::Kind::NULL_VALUE};
+        return store_expr(lit);
+    }
+    
     if (match(TokenType::INTEGER_LITERAL)) {
         Token lit_token = tokens_[current_ - 1];
         LiteralExpr lit{LiteralExpr::Kind::INTEGER};
@@ -1241,32 +1328,22 @@ ExprHandle ParserNew::parse_primary() {
         return store_expr(id);
     }
     
-    // Address-of operator: @operand
-    if (match(TokenType::AT)) {
-        auto operand = parse_unary();  // Recurse to handle @@ etc
-        AddressOfExpr addr_of{operand};
-        return store_expr(addr_of);
-    }
-    
     // Allocation expressions: @alloc(...) and @alloc_vec(...)
     if (check(TokenType::AT)) {
-        size_t save_pos = current_;
-        advance();  // consume @
-        
-        if (check(TokenType::IDENTIFIER)) {
-            Token alloc_token = current();
-            if (alloc_token.lexeme == "alloc" || alloc_token.lexeme == "alloc_vec") {
-                advance();  // consume identifier
+        if (peek().type == TokenType::IDENTIFIER) {
+            Token peek_tok = peek();
+            std::string_view next_lex = peek_tok.lexeme;
+            if (next_lex == "alloc" || next_lex == "alloc_vec") {
+                advance(); // consume @
+                Token alloc_token = advance(); // consume identifier
                 
                 if (match(TokenType::LPAREN)) {
                     TypeHandle element_type = parse_type();
                     std::optional<ExprHandle> size;
                     
                     if (alloc_token.lexeme == "alloc_vec") {
-                        // Vector allocation: @alloc_vec(T, size)
                         if (!match(TokenType::COMMA)) {
                             error("Expected ',' after element type in @alloc_vec");
-                            current_ = save_pos;
                             return ExprHandle();
                         }
                         size = parse_expression();
@@ -1274,7 +1351,6 @@ ExprHandle ParserNew::parse_primary() {
                     
                     if (!match(TokenType::RPAREN)) {
                         error("Expected ')' after allocation arguments");
-                        current_ = save_pos;
                         return ExprHandle();
                     }
                     
@@ -1288,15 +1364,36 @@ ExprHandle ParserNew::parse_primary() {
             }
         }
         
-        // Not an allocation, reset and treat as address-of
-        current_ = save_pos;
-        advance();  // consume @
+        // Address-of operator: @operand
+        advance(); // consume @
         auto operand = parse_unary();
         AddressOfExpr addr_of{operand};
         return store_expr(addr_of);
     }
     
     // Array literal: { expr, expr, ... } or [ expr, expr, ... ]
+    if (match(TokenType::LBRACK)) {
+        std::vector<ExprHandle> elements;
+        
+        if (!check(TokenType::RBRACK)) {
+            elements.push_back(parse_expression());
+            
+            while (match(TokenType::COMMA)) {
+                if (!check(TokenType::RBRACK)) {
+                    elements.push_back(parse_expression());
+                }
+            }
+        }
+        
+        if (!match(TokenType::RBRACK)) {
+            error("Expected ']' after array elements");
+        }
+        
+        ArrayLiteralExpr arr_lit;
+        arr_lit.elements = program_.allocate_array(elements);
+        return store_expr(arr_lit);
+    }
+    
     if (match(TokenType::LBRACE)) {
         // Try to parse as array literal first (comma-separated expressions)
         // If we see a semicolon, backtrack and parse as block
@@ -1336,7 +1433,8 @@ ExprHandle ParserNew::parse_primary() {
         return expr;
     }
     
-    error("Expected expression");
+    error("Expected expression, got '" + std::string(current().lexeme) + "'");
+    advance();
     return ExprHandle();
 }
 
@@ -1347,50 +1445,47 @@ ExprHandle ParserNew::parse_primary() {
 TypeHandle ParserNew::parse_type() {
     // Handle reference types: &T
     if (match(TokenType::AMPERSAND)) {
-        TypeHandle base = parse_type_postfix(parse_base_type());
+        TypeHandle base = parse_type();
         ReferenceType ref{base};
         return store_type(ref);
     }
     
-    return parse_type_postfix(parse_base_type());
-}
-
-TypeHandle ParserNew::parse_type_postfix(TypeHandle base) {
-    while (true) {
-        if (match(TokenType::STAR)) {
-            // Pointer type: *T
-            PointerType ptr{base};
-            base = store_type(ptr);
-        } else if (check(TokenType::LBRACK)) {
-            advance();  // consume [
-            
-            if (match(TokenType::COLON)) {
-                // Slice type: [:T]
-                if (!match(TokenType::RBRACK)) {
-                    error("Expected ']' after slice type");
-                }
-                SliceType slice{base};
-                base = store_type(slice);
-            } else {
-                // Array type: [N]T where N is an expression (typically a literal)
-                // For now, just parse the expression and create array type with size 0
-                // Type semantic analysis will verify the size
-                auto size_expr = parse_expression();
-                
-                if (!match(TokenType::RBRACK)) {
-                    error("Expected ']' after array size");
-                }
-                
-                // Create array with default size; semantic analyzer will compute actual size
-                ArrayType arr{base, 0};
-                base = store_type(arr);
+    // Handle pointer types: *T
+    if (match(TokenType::STAR)) {
+        TypeHandle base = parse_type();
+        PointerType ptr{base};
+        return store_type(ptr);
+    }
+    
+    // Handle array types: [N]T or slice types: [:T] or []T
+    if (match(TokenType::LBRACK)) {
+        if (match(TokenType::COLON)) {
+            // Slice type: [:T]
+            if (!match(TokenType::RBRACK)) {
+                error("Expected ']' after slice type");
             }
+            TypeHandle base = parse_type();
+            SliceType slice{base};
+            return store_type(slice);
+        } else if (match(TokenType::RBRACK)) {
+            // Slice type: []T
+            TypeHandle base = parse_type();
+            SliceType slice{base};
+            return store_type(slice);
         } else {
-            break;
+            // Array type: [N]T
+            auto size_expr = parse_expression();
+            if (!match(TokenType::RBRACK)) {
+                error("Expected ']' after array size");
+            }
+            TypeHandle base = parse_type();
+            // TODO: Extract size from size_expr at compile time. For now just set 0.
+            ArrayType arr{base, 0};
+            return store_type(arr);
         }
     }
     
-    return base;
+    return parse_base_type();
 }
 
 TypeHandle ParserNew::parse_base_type() {

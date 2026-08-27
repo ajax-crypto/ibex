@@ -68,6 +68,8 @@ public:
     void visit(const ContinueStmt& stmt) override;
     void visit(const ExprStmt& stmt) override;
     void visit(const VarDeclStmt& stmt) override;
+    void visit(const ConstBlockStmt& stmt) override;
+    void visit(const ConstModifierStmt& stmt) override;
 
     // DeclVisitor
     void visit(const FunctionDecl& decl) override;

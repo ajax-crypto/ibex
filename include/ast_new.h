@@ -102,6 +102,7 @@ struct LiteralExpr {
         FLOAT,
         STRING,
         BOOLEAN,
+        NULL_VALUE,
     };
     Kind kind;
     union {
@@ -265,6 +266,15 @@ struct VarDeclStmt {
     bool is_const;
 };
 
+struct ConstBlockStmt {
+    std::span<Str> variables;
+    StmtHandle body;
+};
+
+struct ConstModifierStmt {
+    std::span<Str> variables;
+};
+
 // Statement discriminated union
 using Stmt = std::variant<
     BlockStmt,
@@ -275,7 +285,9 @@ using Stmt = std::variant<
     BreakStmt,
     ContinueStmt,
     ExprStmt,
-    VarDeclStmt
+    VarDeclStmt,
+    ConstBlockStmt,
+    ConstModifierStmt
 >;
 
 // ============================================================================
@@ -286,6 +298,7 @@ struct FunctionParameter {
     Str name;
     TypeHandle type;
     std::optional<ExprHandle> default_value;
+    bool is_const;
 };
 
 struct FunctionDecl {

@@ -1,5 +1,6 @@
 #include "semantic_analyzer.h"
 #include <iostream>
+#include <functional>
 
 namespace ibex {
 
@@ -69,7 +70,29 @@ void SemanticAnalyzer::visit(const NamedType& type) {}
 // ----------------------------------------------------------------------------
 // Expressions
 // ----------------------------------------------------------------------------
+void check_mutation(Program& program_, ExprHandle handle, const std::function<std::optional<Symbol>(Str)>& find_symbol, const std::function<void(const std::string&)>& report_error) {
+    if (handle.is_null()) return;
+    auto& expr = program_.expressions[handle.index];
+    if (auto* id = std::get_if<IdentifierExpr>(&expr)) {
+        auto sym = find_symbol(id->name);
+        if (sym && sym->is_const) {
+            report_error("Cannot mutate const variable: '" + std::string(id->name.ptr(), id->name.len()) + "'");
+        }
+    } else if (auto* mem = std::get_if<MemberExpr>(&expr)) {
+        check_mutation(program_, mem->object, find_symbol, report_error);
+    } else if (auto* idx = std::get_if<IndexExpr>(&expr)) {
+        check_mutation(program_, idx->object, find_symbol, report_error);
+    }
+}
+
 void SemanticAnalyzer::visit(const BinaryExpr& expr) {
+    if (expr.op == TokenType::EQUAL || expr.op == TokenType::PLUS_EQUAL || expr.op == TokenType::MINUS_EQUAL || 
+        expr.op == TokenType::STAR_EQUAL || expr.op == TokenType::SLASH_EQUAL) {
+        check_mutation(program_, expr.left, 
+            [this](Str name) { return find_symbol(name); },
+            [this](const std::string& msg) { report_error(msg); });
+    }
+    
     visit_expr(program_.expressions[expr.left.index], this);
     visit_expr(program_.expressions[expr.right.index], this);
 }
@@ -233,6 +256,39 @@ void SemanticAnalyzer::visit(const VarDeclStmt& stmt) {
     if (stmt.initializer) visit_expr(program_.expressions[stmt.initializer.value().index], this);
     add_symbol(stmt.name, stmt.type.value_or(TypeHandle{0}), DeclHandle{}, stmt.is_const);
 }
+void SemanticAnalyzer::visit(const ConstBlockStmt& stmt) {
+    push_scope();
+    for (const auto& var : stmt.variables) {
+        auto sym = find_symbol(var);
+        if (sym) {
+            scopes_.back().symbols.push_back({var, sym->type, sym->decl_handle, true});
+        } else {
+            report_error("Undefined symbol in const block: '" + std::string(var.ptr(), var.len()) + "'");
+        }
+    }
+    visit_stmt(program_.statements[stmt.body.index], this);
+    pop_scope();
+}
+void SemanticAnalyzer::visit(const ConstModifierStmt& stmt) {
+    for (const auto& var : stmt.variables) {
+        auto sym = find_symbol(var);
+        if (sym) {
+            bool in_current = false;
+            for (auto& s : scopes_.back().symbols) {
+                if (s.name == var) {
+                    s.is_const = true;
+                    in_current = true;
+                    break;
+                }
+            }
+            if (!in_current) {
+                scopes_.back().symbols.push_back({var, sym->type, sym->decl_handle, true});
+            }
+        } else {
+            report_error("Undefined symbol in const modifier: '" + std::string(var.ptr(), var.len()) + "'");
+        }
+    }
+}
 
 // ----------------------------------------------------------------------------
 // Declarations
@@ -240,7 +296,7 @@ void SemanticAnalyzer::visit(const VarDeclStmt& stmt) {
 void SemanticAnalyzer::visit(const FunctionDecl& decl) {
     push_scope();
     for (const auto& param : decl.parameters) {
-        add_symbol(param.name, param.type);
+        add_symbol(param.name, param.type, DeclHandle{}, param.is_const);
     }
     visit_stmt(program_.statements[decl.body.index], this);
     pop_scope();
