@@ -38,6 +38,16 @@ bool SemanticAnalyzer::analyze() {
             packages_[pkg_name].symbols.push_back(sym);
         }
     };
+
+    auto register_global_decl = [&](DeclHandle handle) {
+        if (handle.is_null()) return;
+        auto& decl = program_.declarations[handle.index];
+        if (auto* func = std::get_if<FunctionDecl>(&decl)) {
+            scopes_[0].symbols.push_back({func->name, TypeHandle{0}, handle, true, false, false});
+        } else if (auto* s = std::get_if<StructDecl>(&decl)) {
+            scopes_[0].symbols.push_back({s->name, TypeHandle{0}, handle, true, false, false});
+        }
+    };
     
     for (auto handle : program_.top_level_declarations) {
         if (handle.is_null()) continue;
@@ -51,6 +61,17 @@ bool SemanticAnalyzer::analyze() {
                 report_warning("Package '" + pkg_name + "' is split across multiple blocks or files. Consolidating.");
             } else {
                 packages_[pkg_name] = Scope{};
+            }
+
+            bool namespace_registered = false;
+            for (const auto& sym : scopes_[0].symbols) {
+                if (sym.name == pkg->name && sym.is_namespace) {
+                    namespace_registered = true;
+                    break;
+                }
+            }
+            if (!namespace_registered) {
+                scopes_[0].symbols.push_back({pkg->name, TypeHandle{0}, DeclHandle{}, true, false, false, true, pkg_name});
             }
             
             for (auto inner_handle : pkg->declarations) {
@@ -89,6 +110,8 @@ bool SemanticAnalyzer::analyze() {
                     modules_[current_mod].push_back(std::string(p_name.ptr(), p_name.len()));
                 }
             }
+        } else {
+            register_global_decl(handle);
         }
     }
 
@@ -308,7 +331,7 @@ void SemanticAnalyzer::check_discard(ExprHandle expr_handle) {
                         }
                         
                         if (type_nodiscard) {
-                            report_error("Discarding return value of function '" + std::string(ident->name.ptr(), ident->name.len()) + "' which returns a [[nodiscard]] type");
+                            report_warning("Discarding return value of function '" + std::string(ident->name.ptr(), ident->name.len()) + "' which returns a [[nodiscard]] type");
                         } else if (!func_discard) {
                             bool is_void = false;
                             if (!func->return_type.is_null()) {

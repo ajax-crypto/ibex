@@ -32,6 +32,7 @@ else()
         -Wsign-conversion
         -Wunused
     )
+    add_compile_options($<$<COMPILE_LANG_AND_ID:CXX,Clang>:-stdlib=libc++>)
     # Optimize by default
     if(NOT CMAKE_BUILD_TYPE)
         set(CMAKE_BUILD_TYPE Release)

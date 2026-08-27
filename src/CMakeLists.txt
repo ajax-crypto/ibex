@@ -12,7 +12,8 @@ add_library(ibex_compiler
 target_link_libraries(ibex_compiler
     PRIVATE
         $<$<CXX_COMPILER_ID:MSVC>:>
-        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:stdc++>
+        $<$<CXX_COMPILER_ID:Clang>:c++>
+        $<$<CXX_COMPILER_ID:GNU>:stdc++>
     PUBLIC
         glaze::glaze
 )

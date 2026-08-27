@@ -8,5 +8,6 @@ target_include_directories(ibex_runtime PUBLIC ${PROJECT_SOURCE_DIR}/include)
 # Link C standard library
 target_link_libraries(ibex_runtime
     PUBLIC
-        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:stdc++>
+        $<$<CXX_COMPILER_ID:Clang>:c++>
+        $<$<CXX_COMPILER_ID:GNU>:stdc++>
 )
