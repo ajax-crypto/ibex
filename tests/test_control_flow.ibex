@@ -1,41 +1,111 @@
-package test_flow {
-    test_loops : (n: i32) -> i32 {
-        var sum: i32 = 0;
-        
-        // for loop
-        for i in n {
-            if i == 5 {
-                continue;
-            }
-            if i > 10 {
-                break;
-            }
-            sum += i;
-        }
+// Control-flow and compile-time expression coverage.
+package control_flow_tests {
+    const MAX_ITEMS: i32 = 2 + 3 * 4;
+    const MASK: i32 = (1 << 3) | 2;
+    const ENABLED: bool = true && !false;
 
-        // while loop
-        var x := 0;
-        while x < 20 {
-            if x % 2 == 0 {
-                x += 1;
-                continue;
-            }
-            sum += x;
-            x += 1;
+    // Branch selection, including an else-if chain and a constant condition.
+    classify: (value: i32) -> i32 {
+        if value < 0 {
+            return -1;
+        } else if value == 0 {
+            return 0;
+        } else if value < 10 {
+            return 1;
         } else {
-            sum += 100; // else block executes when while terminates normally
+            return 2;
         }
-
-        return sum;
     }
 
-    test_if : (cond: bool, val: i32) -> i32 {
-        if cond {
-            return val * 2;
-        } else if val > 10 {
-            return val / 2;
+    constant_branch: () -> i32 {
+        if ENABLED && (MAX_ITEMS == 14) {
+            return MASK;
         } else {
             return 0;
+        }
+    }
+
+    // A while loop with continue, break, and an else branch.
+    while_break_continue: (limit: i32) -> i32 {
+        var index: i32 = 0;
+        var total: i32 = 0;
+        while index < limit {
+            index += 1;
+            if index == 2 {
+                continue;
+            }
+            if index > 8 {
+                break;
+            }
+            total += index;
+        } else {
+            total += 100;
+        }
+        return total;
+    }
+
+    // A for loop over a value and its empty-range corner case.
+    for_break_continue: (count: i32) -> i32 {
+        var total: i32 = 0;
+        for item in count {
+            if item == 0 {
+                continue;
+            }
+            if item > 8 {
+                break;
+            }
+            total += item;
+        } else {
+            total += 1000;
+        }
+        return total;
+    }
+
+    empty_for: () -> void {
+        for item in [] {
+            continue;
+        } else {
+            return;
+        }
+    }
+
+    // Nested loops and branches exercise scope boundaries for loop variables.
+    nested_control_flow: () -> i32 {
+        var outer: i32 = 0;
+        var total: i32 = 0;
+        while outer < 3 {
+            var inner: i32 = 0;
+            for item in outer {
+                if item == inner {
+                    total += item;
+                } else {
+                    total += 1;
+                }
+                inner += 1;
+            }
+            outer += 1;
+        }
+        return total;
+    }
+
+    // Constant expressions can feed declarations, array sizes, and conditions.
+    constant_expression_shapes: () -> void {
+        const local_limit: i32 = MAX_ITEMS - 4;
+        const local_mask: i32 = MASK ^ 1;
+        const local_enabled: bool = ENABLED || false;
+        values: [MAX_ITEMS]i32;
+        if local_enabled && local_limit > 0 {
+            values[0] = local_mask;
+        }
+    }
+
+    // Const modifiers and blocks are valid around control-flow scopes.
+    const_control_scope: () -> void {
+        value := 10;
+        const (value) {
+            if value == 10 {
+                return;
+            }
         }
     }
 }

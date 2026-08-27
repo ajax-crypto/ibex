@@ -1,0 +1,7 @@
+package alpha_pkg {
+    import beta.beta_pkg;
+
+    greet: () -> void {
+        return;
+    }
+}

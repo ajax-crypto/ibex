@@ -1,0 +1,7 @@
+package beta_pkg {
+    import alpha.alpha_pkg;
+
+    farewell: () -> void {
+        return;
+    }
+}

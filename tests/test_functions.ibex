@@ -1,3 +1,4 @@
+// Source: test_functions.ibex
 package test_fns {
     using Callback = (i32, i32) -> i32;
 
@@ -21,5 +22,93 @@ package test_fns {
     // Function with empty return type (void)
     log_info : (msg: text) {
         const s := msg.size;
+    }
+}
+
+// Source: test_lambdas.ibex
+// Test: Inline/lambda functions — immediately invoked function expressions
+package lambda_tests {
+    test_iife: () -> void {
+        // Basic IIFE: inline function called immediately
+        x := ((y: i32) -> i32 { return y + 1; })(3);
+
+        // Multi-param lambda
+        sum := ((a: i32, b: i32) -> i32 { return a + b; })(10, 20);
+
+        // Void lambda (no return type)
+        ((msg: text) { return; })("hello");
+
+        // Zero-param lambda
+        val := (() -> i32 { return 42; })();
+
+        // Nested: lambda returning result of another expression
+        doubled := ((n: i32) -> i32 { return n * 2; })(5);
+    }
+
+    test_lambda_as_value: () -> void {
+        // Lambda assigned to variable (not immediately invoked)
+        inc := (x: i32) -> i32 { return x + 1; };
+        result := inc(10);
+
+        // Lambda with no return type (void)
+        printer := (msg: text) { return; };
+        printer("hello");
+    }
+}
+
+// Source: test_bindings.ibex
+// Test: Function binding and void return omission
+package binding_tests {
+    // Full function with -> void
+    greet: (name: text, greeting: text) -> void {
+        return;
+    }
+
+    // Function without -> void (equivalent to -> void)
+    log_message: (msg: text) {
+        return;
+    }
+
+    // A function with multiple params for binding tests
+    add: (x: i32, y: i32) -> i32 {
+        return x + y;
+    }
+
+    // Another function with 3 params
+    clamp: (val: i32, lo: i32, hi: i32) -> i32 {
+        if val < lo { return lo; }
+        if val > hi { return hi; }
+        return val;
+    }
+
+    test_bindings: () {
+        // Bind y=10 to add, creating a new function that takes only x
+        add10 := #add(y=10);
+        result := add10(5);  // equivalent to add(5, 10) = 15
+
+        // Bind lo and hi, creating a function that takes only val
+        clamp_byte := #clamp(lo=0, hi=255);
+        clamped := clamp_byte(300);  // equivalent to clamp(300, 0, 255) = 255
+
+        // Bind greeting
+        hello := #greet(greeting="Hello");
+        hello("World");  // equivalent to greet("World", "Hello")
+
+        // Bind single param
+        add5 := #add(y=5);
+        r2 := add5(3);   // equivalent to add(3, 5) = 8
+    }
+
+    // Test: void return type omission — these should all be equivalent
+    void_explicit: () -> void {
+        return;
+    }
+
+    void_omitted: () {
+        return;
+    }
+
+    no_return_stmt: () {
+        // no return needed for void functions
     }
 }

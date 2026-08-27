@@ -1,0 +1,7 @@
+package app {
+    import config(true, 256).* as cfg;
+
+    main: () -> void {
+        x: i32 = cfg.utils.clamp(100, 0, 255);
+    }
+}

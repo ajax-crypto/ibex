@@ -1,0 +1,5 @@
+module config(debug: bool, max_size: i32);
+
+export package utils;
+
+const MAX_SIZE: i32 = 256;

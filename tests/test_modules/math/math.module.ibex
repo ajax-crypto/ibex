@@ -1,0 +1,8 @@
+module math;
+
+export package geom, calc;
+export package other_mod.pkg1;
+[[deprecated("math module is deprecated")]]
+export package old_calc;
+
+const PI: f32 = 3.14159;

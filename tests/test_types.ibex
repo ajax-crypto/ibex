@@ -1,3 +1,31 @@
+// Source: type_properties.ibex
+// Test: Type property errors — accessing float properties on int types
+package type_prop_errors {
+    test_invalid_props: () -> void {
+        // These should produce errors
+        bad1 := i32.infinity;       // .infinity only on f32/f64
+        bad2 := u8.nan;             // .nan only on f32/f64
+        bad3 := i64.epsilon;        // .epsilon only on f32/f64
+        bad4 := u32.signaling_nan;  // .signaling_nan only on f32/f64
+    }
+}
+
+// Source: test_alias.ibex
+package types { [[strong]] using MyInt = i32; using WeakInt = i32; using MyAlias = WeakInt; } module m { export package types; } import m.types as t; const a := sizeof(t.MyInt); const b := sizeof(a); using T = typeof(a);
+
+// Source: lifetime.ibex
+
+main: () -> void {
+    {
+        a := 10;
+        static s := 20;
+    }
+    b := a; // Error: a is not in scope
+    c := s; // OK: s is static, duration of program
+}
+
+
+// Source: parser_corner_cases.ibex
 // 1. Empty struct
 struct Empty {}
 
@@ -36,31 +64,7 @@ ref_var: &i32;
 // 8. Nested pointers and arrays
 nested: *[]*[5]i32;
 
-// 9. If-else chains
-test_if: (x: i32) -> void {
-    if x == 1 {
-    } else if x == 2 {
-    } else {
-    }
-}
-
-// 10. While loops with else
-test_while: () -> void {
-    while true {
-        break;
-        continue;
-    } else {
-    }
-}
-
-// 11. For loops with else
-test_for: () -> void {
-    for i in range(0, 10) {
-    } else {
-    }
-}
-
-// 12. Const scopes
+// 9. Const scopes
 test_const_scopes: () -> void {
     a: i32 = 1;
     b: i32 = 2;
@@ -70,7 +74,7 @@ test_const_scopes: () -> void {
     }
 }
 
-// 13. Expressions precedence
+// 10. Expressions precedence
 expr_test: () -> i32 {
     return 1 + 2 * 3 / 4 - 5 % 6 & 7 | 8 ^ 9 << 1 >> 2 == 3 != 4 < 5 > 6 <= 7 >= 8 && 9 || 10;
 }

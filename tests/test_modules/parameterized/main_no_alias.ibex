@@ -1,0 +1,7 @@
+package bad_app {
+    import config(true, 256).*;
+
+    main: () -> void {
+        return;
+    }
+}

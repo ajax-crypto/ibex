@@ -1,0 +1,7 @@
+package self_pkg {
+    import selfmod.self_pkg;
+
+    noop: () -> void {
+        return;
+    }
+}

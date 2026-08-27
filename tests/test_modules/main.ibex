@@ -1,0 +1,9 @@
+package main {
+    import math.geom;
+    import math.calc;
+
+    main: () -> void {
+        p1: geom.Point = geom.Point {x: 0.0, y: 0.0};
+        val: i32 = calc.add(1, 2);
+    }
+}

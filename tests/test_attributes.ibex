@@ -1,3 +1,4 @@
+// Source: attributes.ibex
 
 [[nodiscard]]
 struct MustUse {

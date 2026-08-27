@@ -1,0 +1,10 @@
+package geom {
+    struct Point {
+        x: f32;
+        y: f32;
+    }
+
+    distance: (p1: Point, p2: Point) -> f32 {
+        return 0.0;
+    }
+}
