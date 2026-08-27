@@ -146,7 +146,7 @@ std::span<Attribute> ParserNew::parse_attributes() {
 }
 
 bool ParserNew::evaluate_platform_attribute(std::span<Attribute> attrs) {
-    std::string_view target_platform = "\"win32\"";
+    std::string_view target_platform = "win32";
     
     for (const auto& attr : attrs) {
         if (attr.name.len() == 8 && std::strncmp(attr.name.ptr(), "platform", 8) == 0) {
@@ -399,6 +399,10 @@ DeclHandle ParserNew::parse_struct_decl(std::span<Attribute> attrs) {
                 error("Expected ';' after struct member");
                 return DeclHandle();
             }
+        } else {
+            error("Expected member name in struct");
+            advance(); // consume the bad token to prevent infinite loop
+            break;
         }
     }
 

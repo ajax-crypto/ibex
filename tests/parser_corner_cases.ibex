@@ -3,7 +3,7 @@ struct Empty {}
 
 // 2. Struct with inheritance and offset
 struct Base { x: i32; }
-struct Derived : Base { [[offset:4]] y: i32; }
+struct Derived : Base { [[offset(4)]] y: i32; }
 
 // 3. Flags and Enums
 flag Permissions { Read, Write, Execute }
@@ -212,7 +212,7 @@ complex_if: () -> void {
 
 // 36. Pointer to array of pointers
 ptr_arr_ptr: () -> void {
-    var: *[10]*i32;
+    v: *[10]*i32;
 }
 
 // 37. Empty array literal

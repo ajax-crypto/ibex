@@ -116,8 +116,24 @@ TypeHandle SemanticAnalyzer::resolve_type(const Type& type_variant) {
 }
 
 void SemanticAnalyzer::validate_attributes(std::span<Attribute> attrs) {
-    // Stub: validate that all attribute names are known built-ins or user-defined
-    // For now, just accept everything
+    for (const auto& attr : attrs) {
+        std::string_view name(attr.name.ptr(), attr.name.len());
+        if (name == "strong" || name == "unused" || name == "deprecated" || 
+            name == "platform" || name == "discard" || name == "offset") {
+            
+            if (name == "deprecated" && attr.args.size() != 1) {
+                report_warning("Attribute 'deprecated' expects exactly 1 argument");
+            }
+            if (name == "platform" && attr.args.empty()) {
+                report_error("Attribute 'platform' expects at least 1 argument");
+            }
+            if (name == "offset" && attr.args.size() != 1) {
+                report_error("Attribute 'offset' expects exactly 1 argument");
+            }
+        } else {
+            report_warning("Unknown attribute: '" + std::string(name) + "'");
+        }
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -408,6 +424,7 @@ void SemanticAnalyzer::visit(const SizeofExpr& expr) {
 // Statements
 // ----------------------------------------------------------------------------
 void SemanticAnalyzer::visit(const BlockStmt& stmt) {
+    validate_attributes(stmt.attributes);
     push_scope();
     for (auto s : stmt.statements) {
         if (!s.is_null()) visit_stmt(program_.statements[s.index], this);
@@ -422,6 +439,7 @@ void SemanticAnalyzer::visit(const ReturnStmt& stmt) {
 }
 
 void SemanticAnalyzer::visit(const IfStmt& stmt) {
+    validate_attributes(stmt.attributes);
     if (stmt.condition && !stmt.condition.value().is_null()) {
         visit_expr(program_.expressions[stmt.condition.value().index], this);
     }
@@ -434,6 +452,7 @@ void SemanticAnalyzer::visit(const IfStmt& stmt) {
 }
 
 void SemanticAnalyzer::visit(const WhileStmt& stmt) {
+    validate_attributes(stmt.attributes);
     if (!stmt.condition.is_null()) visit_expr(program_.expressions[stmt.condition.index], this);
     if (!stmt.body.is_null()) visit_stmt(program_.statements[stmt.body.index], this);
     if (stmt.else_branch && !stmt.else_branch.value().is_null()) {
@@ -442,6 +461,7 @@ void SemanticAnalyzer::visit(const WhileStmt& stmt) {
 }
 
 void SemanticAnalyzer::visit(const ForStmt& stmt) {
+    validate_attributes(stmt.attributes);
     if (!stmt.range.is_null()) visit_expr(program_.expressions[stmt.range.index], this);
     push_scope();
     add_symbol(stmt.variable, TypeHandle{0}, DeclHandle{}, true);
@@ -460,6 +480,7 @@ void SemanticAnalyzer::visit(const ExprStmt& stmt) {
 }
 
 void SemanticAnalyzer::visit(const VarDeclStmt& stmt) {
+    validate_attributes(stmt.attributes);
     if (stmt.type && !stmt.type.value().is_null()) visit_type(program_.types[stmt.type.value().index], this);
     if (stmt.initializer && !stmt.initializer.value().is_null()) {
         visit_expr(program_.expressions[stmt.initializer.value().index], this);
@@ -506,6 +527,7 @@ void SemanticAnalyzer::visit(const ConstModifierStmt& stmt) {
 // Modules and Packages
 // ----------------------------------------------------------------------------
 void SemanticAnalyzer::visit(const PackageDecl& decl) {
+    validate_attributes(decl.attributes);
     push_scope();
     for (auto d : decl.declarations) {
         if (!d.is_null()) visit_decl(program_.declarations[d.index], this);
@@ -519,6 +541,7 @@ void SemanticAnalyzer::visit(const PackageDecl& decl) {
 }
 
 void SemanticAnalyzer::visit(const ModuleDecl& decl) {
+    validate_attributes(decl.attributes);
     push_scope();
     for (auto d : decl.declarations) {
         if (!d.is_null()) visit_decl(program_.declarations[d.index], this);
@@ -596,6 +619,7 @@ void SemanticAnalyzer::visit(const ExportPackagesDecl& decl) {
 }
 
 void SemanticAnalyzer::visit(const TypeAliasDecl& decl) {
+    validate_attributes(decl.attributes);
     if (!decl.target_type.is_null()) visit_type(program_.types[decl.target_type.index], this);
     add_symbol(decl.name, decl.target_type, DeclHandle{}, false);
 }
@@ -604,6 +628,7 @@ void SemanticAnalyzer::visit(const TypeAliasDecl& decl) {
 // Declarations
 // ----------------------------------------------------------------------------
 void SemanticAnalyzer::visit(const FunctionDecl& decl) {
+    validate_attributes(decl.attributes);
     std::cout << "Visiting FunctionDecl: " << std::string(decl.name.ptr(), decl.name.len()) << "\n";
     push_scope();
     for (const auto& param : decl.parameters) {
@@ -614,6 +639,7 @@ void SemanticAnalyzer::visit(const FunctionDecl& decl) {
 }
 
 void SemanticAnalyzer::visit(const VariableDecl& decl) {
+    validate_attributes(decl.attributes);
     std::cout << "Visiting VariableDecl: " << std::string(decl.name.ptr(), decl.name.len()) << "\n";
     if (decl.type && !decl.type.value().is_null()) visit_type(program_.types[decl.type.value().index], this);
     if (decl.initializer && !decl.initializer.value().is_null()) {
