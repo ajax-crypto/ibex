@@ -89,8 +89,13 @@ struct TypeofType {
     ExprHandle expr;
 };
 
+struct FunctionType {
+    std::span<TypeHandle> param_types;
+    TypeHandle return_type;
+};
+
 // Type discriminated union
-using Type = std::variant<PrimitiveType, PointerType, ReferenceType, ArrayType, SliceType, NamedType, TypeofType>;
+using Type = std::variant<PrimitiveType, PointerType, ReferenceType, ArrayType, SliceType, NamedType, TypeofType, FunctionType>;
 
 // ============================================================================
 // EXPRESSIONS - Discriminated union for expressions

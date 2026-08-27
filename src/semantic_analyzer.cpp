@@ -42,7 +42,8 @@ bool SemanticAnalyzer::analyze() {
     }
 
     // Pass 1.5: Build Packages and Modules
-    for (const auto& decl : program_.declarations) {
+    for (size_t i = 0; i < program_.declarations.size(); ++i) {
+        auto& decl = program_.declarations[i];
         if (auto* pkg = std::get_if<PackageDecl>(&decl)) {
             std::string pkg_name = std::string(pkg->name.ptr(), pkg->name.len());
             if (packages_.find(pkg_name) == packages_.end()) {
@@ -63,9 +64,11 @@ bool SemanticAnalyzer::analyze() {
         }
     }
 
-    // Main pass: visit all declarations
-    for (size_t i = 0; i < program_.declarations.size(); ++i) {
-        visit_decl(program_.declarations[i], this);
+    // Main pass: visit all top-level declarations
+    for (auto decl_handle : program_.top_level_declarations) {
+        if (!decl_handle.is_null()) {
+            visit_decl(program_.declarations[decl_handle.index], this);
+        }
     }
     return !has_errors();
 }
@@ -81,6 +84,7 @@ void SemanticAnalyzer::pop_scope() {
 }
 
 void SemanticAnalyzer::add_symbol(Str name, TypeHandle type, DeclHandle decl_handle, bool is_const, bool allow_unused) {
+    std::cout << "add_symbol: " << std::string(name.ptr(), name.len()) << "\n";
     if (scopes_.empty()) return;
     for (const auto& sym : scopes_.back().symbols) {
         if (sym.name == name) {
@@ -92,6 +96,7 @@ void SemanticAnalyzer::add_symbol(Str name, TypeHandle type, DeclHandle decl_han
 }
 
 std::optional<Symbol> SemanticAnalyzer::find_symbol(Str name) const {
+    std::cout << "find_symbol: " << std::string(name.ptr(), name.len()) << "\n";
     for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
         for (const auto& sym : it->symbols) {
             if (sym.name == name) {
@@ -135,6 +140,15 @@ void SemanticAnalyzer::visit(const NamedType& type) {}
 
 void SemanticAnalyzer::visit(const TypeofType& type) {
     if (!type.expr.is_null()) visit_expr(program_.expressions[type.expr.index], this);
+}
+
+void SemanticAnalyzer::visit(const FunctionType& type) {
+    for (auto handle : type.param_types) {
+        if (!handle.is_null()) visit_type(program_.types[handle.index], this);
+    }
+    if (!type.return_type.is_null()) {
+        visit_type(program_.types[type.return_type.index], this);
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -590,6 +604,7 @@ void SemanticAnalyzer::visit(const TypeAliasDecl& decl) {
 // Declarations
 // ----------------------------------------------------------------------------
 void SemanticAnalyzer::visit(const FunctionDecl& decl) {
+    std::cout << "Visiting FunctionDecl: " << std::string(decl.name.ptr(), decl.name.len()) << "\n";
     push_scope();
     for (const auto& param : decl.parameters) {
         add_symbol(param.name, param.type, DeclHandle{}, param.is_const);
@@ -599,6 +614,7 @@ void SemanticAnalyzer::visit(const FunctionDecl& decl) {
 }
 
 void SemanticAnalyzer::visit(const VariableDecl& decl) {
+    std::cout << "Visiting VariableDecl: " << std::string(decl.name.ptr(), decl.name.len()) << "\n";
     if (decl.type && !decl.type.value().is_null()) visit_type(program_.types[decl.type.value().index], this);
     if (decl.initializer && !decl.initializer.value().is_null()) {
         visit_expr(program_.expressions[decl.initializer.value().index], this);

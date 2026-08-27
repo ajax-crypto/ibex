@@ -144,6 +144,7 @@ TokenType Lexer::keyword_type(std::string_view lexeme) {
         {"continue", TokenType::CONTINUE},
         {"static", TokenType::STATIC},
         {"const", TokenType::CONST_KW},
+        {"var", TokenType::VAR},
         {"as", TokenType::AS},
         {"package", TokenType::PACKAGE},
         {"export", TokenType::EXPORT},

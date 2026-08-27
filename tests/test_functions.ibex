@@ -1,0 +1,25 @@
+package test_fns {
+    using Callback = (i32, i32) -> i32;
+
+    add : (a: i32, b: i32) -> i32 {
+        return a + b;
+    }
+
+    apply : (cb: Callback, a: i32, b: i32) -> i32 {
+        return cb(a, b);
+    }
+
+    process_data : (data: [:u8], cb: (i32) -> bool) -> bool {
+        const size := sizeof(data);
+        return cb(size as i32);
+    }
+
+    get_adder : () -> (i32, i32) -> i32 {
+        return add;
+    }
+
+    // Function with empty return type (void)
+    log_info : (msg: text) {
+        const s := msg.size;
+    }
+}

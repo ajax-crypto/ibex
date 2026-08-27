@@ -1,0 +1,41 @@
+package test_flow {
+    test_loops : (n: i32) -> i32 {
+        var sum: i32 = 0;
+        
+        // for loop
+        for i in n {
+            if i == 5 {
+                continue;
+            }
+            if i > 10 {
+                break;
+            }
+            sum += i;
+        }
+
+        // while loop
+        var x := 0;
+        while x < 20 {
+            if x % 2 == 0 {
+                x += 1;
+                continue;
+            }
+            sum += x;
+            x += 1;
+        } else {
+            sum += 100; // else block executes when while terminates normally
+        }
+
+        return sum;
+    }
+
+    test_if : (cond: bool, val: i32) -> i32 {
+        if cond {
+            return val * 2;
+        } else if val > 10 {
+            return val / 2;
+        } else {
+            return 0;
+        }
+    }
+}

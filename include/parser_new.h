@@ -31,6 +31,7 @@ private:
     size_t current_ = 0;
     Program program_;
     std::vector<std::string> errors_;
+    bool allow_struct_init_ = true;
 
     // ========================================================================
     // HELPERS

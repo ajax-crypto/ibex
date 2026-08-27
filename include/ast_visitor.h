@@ -22,6 +22,7 @@ public:
     virtual void visit(const SliceType& type) = 0;
     virtual void visit(const NamedType& type) = 0;
     virtual void visit(const TypeofType& type) = 0;
+    virtual void visit(const FunctionType& type) = 0;
 };
 
 inline void visit_type(const Type& type, TypeVisitor* visitor) {

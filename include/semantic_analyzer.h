@@ -53,6 +53,7 @@ public:
     void visit(const SliceType& type) override;
     void visit(const NamedType& type) override;
     void visit(const TypeofType& type) override;
+    void visit(const FunctionType& type) override;
 
     // ExprVisitor
     void visit(const BinaryExpr& expr) override;

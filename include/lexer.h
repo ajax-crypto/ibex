@@ -35,6 +35,7 @@ enum class TokenType {
     CONTINUE,       // continue
     STATIC,         // static
     CONST_KW,       // const
+    VAR,            // var
     AS,             // as (type casting)
     PACKAGE,        // package
     EXPORT,         // export

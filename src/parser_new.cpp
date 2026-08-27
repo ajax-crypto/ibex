@@ -229,6 +229,10 @@ DeclHandle ParserNew::parse_declaration() {
             return parse_variable_decl(true, false, attrs);
         }
     }
+    if (check(TokenType::VAR)) {
+        advance();
+        return parse_variable_decl(false, false, attrs);
+    }
     if (check(TokenType::STATIC)) {
         advance();
         return parse_variable_decl(false, true, attrs);
@@ -279,13 +283,10 @@ DeclHandle ParserNew::parse_function_decl(std::span<Attribute> attrs) {
         return DeclHandle();
     }
 
-    if (!match(TokenType::ARROW)) {
-        error("Expected '->' before return type");
-        return DeclHandle();
+    TypeHandle return_type;
+    if (match(TokenType::ARROW)) {
+        return_type = parse_type();
     }
-
-    TypeHandle return_type = parse_type();
-
     
     if (!match(TokenType::LBRACE)) {
         error("Expected '{' to start function body");
@@ -943,6 +944,11 @@ StmtHandle ParserNew::parse_statement(std::span<Attribute> attrs) {
         advance(); // static
         return parse_var_decl_statement(false, true, attrs);
     }
+    
+    if (check(TokenType::VAR)) {
+        advance(); // var
+        return parse_var_decl_statement(false, false, attrs);
+    }
 
     if (check(TokenType::IDENTIFIER)) {
         size_t save_pos = current_;
@@ -1062,7 +1068,10 @@ StmtHandle ParserNew::parse_if_statement(std::span<Attribute> attrs) {
         return result; // Replaces the if entirely!
     }
 
+    bool old_allow = allow_struct_init_;
+    allow_struct_init_ = false;
     auto condition = parse_expression();
+    allow_struct_init_ = old_allow;
     
     if (!match(TokenType::LBRACE)) {
         error("Expected '{' after if condition");
@@ -1090,7 +1099,10 @@ StmtHandle ParserNew::parse_if_statement(std::span<Attribute> attrs) {
 }
 
 StmtHandle ParserNew::parse_while_statement(std::span<Attribute> attrs) {
+    bool old_allow = allow_struct_init_;
+    allow_struct_init_ = false;
     auto condition = parse_expression();
+    allow_struct_init_ = old_allow;
     
     if (!match(TokenType::LBRACE)) {
         error("Expected '{' after while condition");
@@ -1099,18 +1111,16 @@ StmtHandle ParserNew::parse_while_statement(std::span<Attribute> attrs) {
     
     auto body = parse_block_statement();
     
-    // Parse optional else block
-    std::optional<StmtHandle> else_branch;
+    std::optional<StmtHandle> else_stmt;
     if (match(TokenType::ELSE)) {
-        if (match(TokenType::LBRACE)) {
-            else_branch = parse_block_statement();
-        } else {
-            error("Expected '{' after else");
-            return StmtHandle();
+        if (!match(TokenType::LBRACE)) {
+            error("Expected '{' after while-else");
         }
+        else_stmt = parse_block_statement();
     }
     
-    return store_stmt(WhileStmt{.attributes = attrs, .condition = condition, .body = body, .else_branch = else_branch});
+    WhileStmt stmt{.attributes = attrs, .condition = condition, .body = body, .else_branch = else_stmt};
+    return store_stmt(stmt);
 }
 
 StmtHandle ParserNew::parse_for_statement(std::span<Attribute> attrs) {
@@ -1126,7 +1136,10 @@ StmtHandle ParserNew::parse_for_statement(std::span<Attribute> attrs) {
         return StmtHandle();
     }
     
+    bool old_allow = allow_struct_init_;
+    allow_struct_init_ = false;
     auto range_expr = parse_expression();
+    allow_struct_init_ = old_allow;
     
     if (!match(TokenType::LBRACE)) {
         error("Expected '{' after for range expression");
@@ -1150,12 +1163,12 @@ StmtHandle ParserNew::parse_for_statement(std::span<Attribute> attrs) {
 }
 
 StmtHandle ParserNew::parse_var_decl_statement(bool is_const, bool is_static, std::span<Attribute> attrs) {
-    auto decl_handle = parse_variable_decl(is_const);
+    auto decl_handle = parse_variable_decl(is_const, is_static, attrs);
     
     if (decl_handle.is_null()) {
         return StmtHandle();
     }
-    
+
     // Retrieve the parsed VariableDecl from the program
     if (auto* var_decl = std::get_if<VariableDecl>(&program_.declarations[decl_handle.index])) {
         VarDeclStmt stmt{
@@ -1358,7 +1371,7 @@ ExprHandle ParserNew::parse_postfix() {
             auto cast_type = parse_type();
             CastExpr cast{expr, cast_type};
             expr = store_expr(cast);
-        } else if (check(TokenType::LBRACE)) {
+        } else if (allow_struct_init_ && check(TokenType::LBRACE)) {
             // Check if expr is an identifier and this is struct initialization
             if (std::holds_alternative<IdentifierExpr>(program_.expressions[expr.index])) {
                 advance(); // consume {
@@ -1771,6 +1784,31 @@ ExprHandle ParserNew::parse_primary() {
 // ============================================================================
 
 TypeHandle ParserNew::parse_type() {
+    // Handle function types: (T1, T2) -> RetType
+    if (match(TokenType::LPAREN)) {
+        std::vector<TypeHandle> param_types;
+        while (!check(TokenType::RPAREN) && !is_at_end()) {
+            param_types.push_back(parse_type());
+            if (!match(TokenType::COMMA)) {
+                break;
+            }
+        }
+        if (!match(TokenType::RPAREN)) {
+            error("Expected ')' in function type");
+        }
+        
+        TypeHandle ret_type;
+        if (match(TokenType::ARROW)) {
+            ret_type = parse_type();
+        }
+        
+        FunctionType fn_type{
+            .param_types = program_.allocate_array(param_types),
+            .return_type = ret_type
+        };
+        return store_type(fn_type);
+    }
+
     // Handle reference types: &T
     if (match(TokenType::AMPERSAND)) {
         TypeHandle base = parse_type();
@@ -1789,10 +1827,10 @@ TypeHandle ParserNew::parse_type() {
     if (match(TokenType::LBRACK)) {
         if (match(TokenType::COLON)) {
             // Slice type: [:T]
+            TypeHandle base = parse_type();
             if (!match(TokenType::RBRACK)) {
                 error("Expected ']' after slice type");
             }
-            TypeHandle base = parse_type();
             SliceType slice{base};
             return store_type(slice);
         } else if (match(TokenType::RBRACK)) {
