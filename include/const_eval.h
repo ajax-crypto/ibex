@@ -31,9 +31,16 @@ public:
     // Convert a ConstValue to string for error messages
     static std::string to_string(const ConstValue& val);
 
+    // Error reporting
+    const std::vector<std::string>& get_errors() const { return errors_; }
+    bool has_errors() const { return !errors_.empty(); }
+
 private:
     const Program& program_;
     std::unordered_map<std::string, ConstValue> constants_;
+    std::vector<std::string> errors_;
+
+    void report_error(const std::string& msg) { errors_.push_back(msg); }
 
     std::optional<ConstValue> eval_literal(const LiteralExpr& expr);
     std::optional<ConstValue> eval_identifier(const IdentifierExpr& expr);

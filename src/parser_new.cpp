@@ -1635,11 +1635,79 @@ ExprHandle ParserNew::parse_primary() {
         LiteralExpr lit{LiteralExpr::Kind::NULL_VALUE};
         return store_expr(lit);
     }
-    
+    // Function binding expression: #func(y=2, x=3)
+    if (match(TokenType::HASH)) {
+        if (!check(TokenType::IDENTIFIER)) {
+            error("Expected function name after '#'");
+            return ExprHandle();
+        }
+        Token func_tok = advance();
+        Str target = alloc_str(func_tok.lexeme);
+
+        if (!match(TokenType::LPAREN)) {
+            error("Expected '(' after '#" + func_tok.lexeme + "'");
+            return ExprHandle();
+        }
+
+        std::vector<NamedArg> bound_args;
+        while (!check(TokenType::RPAREN) && !is_at_end()) {
+            // Parse named argument: name = expr
+            if (check(TokenType::IDENTIFIER) && current_ + 1 < tokens_.size() &&
+                tokens_[current_ + 1].type == TokenType::EQUAL) {
+                Token name_tok = advance(); // consume name
+                advance(); // consume '='
+                ExprHandle val = parse_expression();
+                NamedArg arg;
+                arg.name = alloc_str(name_tok.lexeme);
+                arg.value = val;
+                bound_args.push_back(arg);
+            } else {
+                error("Expected named argument (name=value) in binding expression");
+                return ExprHandle();
+            }
+
+            if (!check(TokenType::RPAREN)) {
+                if (!match(TokenType::COMMA)) {
+                    error("Expected ',' or ')' in binding arguments");
+                    return ExprHandle();
+                }
+            }
+        }
+
+        if (!match(TokenType::RPAREN)) {
+            error("Expected ')' after binding arguments");
+            return ExprHandle();
+        }
+
+        BindingExpr bind;
+        bind.target_function = target;
+        bind.bound_args = program_.allocate_array(bound_args);
+        return store_expr(bind);
+    }
+    // Type member expressions: i32.max, f64.infinity, etc.
+    if (is_primitive_type() || check(TokenType::BF16) || check(TokenType::FP16) ||
+        check(TokenType::FP8) || check(TokenType::FP4)) {
+        // Peek ahead: if next token after type is DOT, parse as TypeMemberExpr
+        if (current_ + 1 < tokens_.size() && tokens_[current_ + 1].type == TokenType::DOT) {
+            Token type_tok = advance(); // consume the type token
+            advance(); // consume the DOT
+            if (!check(TokenType::IDENTIFIER)) {
+                error("Expected property name after '" + type_tok.lexeme + ".'");
+                return ExprHandle();
+            }
+            Token member_tok = advance();
+            TypeMemberExpr tme;
+            tme.type_name = alloc_str(type_tok.lexeme);
+            tme.member = alloc_str(member_tok.lexeme);
+            return store_expr(tme);
+        }
+    }
+
     if (match(TokenType::INTEGER_LITERAL)) {
         Token lit_token = tokens_[current_ - 1];
         LiteralExpr lit{LiteralExpr::Kind::INTEGER};
         lit.value.int_value = std::stoll(lit_token.lexeme);
+        lit.type_suffix = lit_token.type_suffix;
         return store_expr(lit);
     }
     
@@ -1647,6 +1715,7 @@ ExprHandle ParserNew::parse_primary() {
         Token lit_token = tokens_[current_ - 1];
         LiteralExpr lit{LiteralExpr::Kind::FLOAT};
         lit.value.float_value = std::stod(lit_token.lexeme);
+        lit.type_suffix = lit_token.type_suffix;
         return store_expr(lit);
     }
     
@@ -1779,7 +1848,38 @@ ExprHandle ParserNew::parse_primary() {
         return ExprHandle();
     }
     
-    if (match(TokenType::LPAREN)) {
+    if (check(TokenType::LPAREN)) {
+        // Disambiguate: (expr) grouping vs (params) -> RetType { body } lambda
+        // Heuristic: scan ahead from LPAREN to find matching RPAREN,
+        // then check if followed by ARROW or LBRACE
+        size_t save = current_;
+        advance(); // consume (
+        
+        // Quick check: () followed by -> or { is definitely a lambda
+        if (check(TokenType::RPAREN)) {
+            size_t after_rparen = current_ + 1;
+            if (after_rparen < tokens_.size() && 
+                (tokens_[after_rparen].type == TokenType::ARROW || 
+                 tokens_[after_rparen].type == TokenType::LBRACE)) {
+                // It's a lambda: () -> ... or () { ... }
+                current_ = save;
+                return parse_lambda_expr();
+            }
+        }
+        
+        // Check: (identifier : type ...) pattern → lambda
+        if (check(TokenType::IDENTIFIER)) {
+            size_t probe = current_ + 1;
+            if (probe < tokens_.size() && tokens_[probe].type == TokenType::COLON) {
+                // Looks like a parameter declaration → parse as lambda
+                current_ = save;
+                return parse_lambda_expr();
+            }
+        }
+        
+        // Otherwise it's a grouping expression
+        current_ = save;
+        advance(); // consume (
         auto expr = parse_expression();
         if (!match(TokenType::RPAREN)) {
             error("Expected ')' after expression");
@@ -1790,6 +1890,85 @@ ExprHandle ParserNew::parse_primary() {
     error("Expected expression, got '" + std::string(current().lexeme) + "'");
     advance();
     return ExprHandle();
+}
+
+ExprHandle ParserNew::parse_lambda_expr() {
+    if (!match(TokenType::LPAREN)) {
+        error("Expected '(' for lambda parameters");
+        return ExprHandle();
+    }
+
+    // Parse parameter list: (name: Type, ...)
+    std::vector<LambdaParam> params;
+    while (!check(TokenType::RPAREN) && !is_at_end()) {
+        if (!check(TokenType::IDENTIFIER)) {
+            error("Expected parameter name in lambda");
+            return ExprHandle();
+        }
+        Token name_tok = advance();
+        if (!match(TokenType::COLON)) {
+            error("Expected ':' after parameter name '" + name_tok.lexeme + "'");
+            return ExprHandle();
+        }
+        TypeHandle param_type = parse_type();
+        LambdaParam lp;
+        lp.name = alloc_str(name_tok.lexeme);
+        lp.type = param_type;
+        params.push_back(lp);
+
+        if (!check(TokenType::RPAREN)) {
+            if (!match(TokenType::COMMA)) {
+                error("Expected ',' or ')' in lambda parameters");
+                return ExprHandle();
+            }
+        }
+    }
+
+    if (!match(TokenType::RPAREN)) {
+        error("Expected ')' after lambda parameters");
+        return ExprHandle();
+    }
+
+    // Optional return type: -> Type
+    TypeHandle return_type;
+    if (match(TokenType::ARROW)) {
+        return_type = parse_type();
+    }
+
+    // Body: { ... }
+    if (!match(TokenType::LBRACE)) {
+        error("Expected '{' for lambda body");
+        return ExprHandle();
+    }
+
+    std::vector<StmtHandle> body_stmts;
+    while (!check(TokenType::RBRACE) && !is_at_end()) {
+        auto stmt = parse_statement();
+        if (!stmt.is_null()) {
+            body_stmts.push_back(stmt);
+        } else {
+            advance();
+            while (!check(TokenType::RBRACE) && !check(TokenType::SEMICOLON) && !is_at_end()) {
+                advance();
+            }
+            if (check(TokenType::SEMICOLON)) advance();
+        }
+    }
+
+    if (!match(TokenType::RBRACE)) {
+        error("Expected '}' after lambda body");
+        return ExprHandle();
+    }
+
+    BlockStmt block;
+    block.statements = program_.allocate_array(body_stmts);
+    StmtHandle body = store_stmt(block);
+
+    LambdaExpr lambda;
+    lambda.parameters = program_.allocate_array(params);
+    lambda.return_type = return_type;
+    lambda.body = body;
+    return store_expr(lambda);
 }
 
 // ============================================================================

@@ -1,0 +1,12 @@
+// Test: Overflow errors — every statement here should produce a compile error
+package overflow_tests {
+    test_overflow: () -> void {
+        // These should all produce overflow errors
+        a: u8 = 256u8;          // overflows u8 (max 255)
+        b: i8 = 128i8;          // overflows i8 (max 127)
+        c: i8 = -129i8;         // overflows i8 (min -128)
+        d: u16 = 65536u16;      // overflows u16 (max 65535)
+        e: u32 = 4294967296u32; // overflows u32 (max 4294967295)
+        f: u64 = -1u64;         // cannot be negative for u64
+    }
+}

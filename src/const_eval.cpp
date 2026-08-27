@@ -1,5 +1,6 @@
 #include "const_eval.h"
 #include <cmath>
+#include <climits>
 #include <sstream>
 
 namespace ibex {
@@ -73,11 +74,50 @@ std::optional<ConstValue> ConstExprEvaluator::eval_binary(const BinaryExpr& expr
     if (auto* li = std::get_if<int64_t>(&*lhs)) {
         if (auto* ri = std::get_if<int64_t>(&*rhs)) {
             switch (expr.op) {
-                case TokenType::PLUS:       return ConstValue{*li + *ri};
-                case TokenType::MINUS:      return ConstValue{*li - *ri};
-                case TokenType::STAR:       return ConstValue{*li * *ri};
-                case TokenType::SLASH:      return *ri != 0 ? std::optional{ConstValue{*li / *ri}} : std::nullopt;
-                case TokenType::PERCENT:    return *ri != 0 ? std::optional{ConstValue{*li % *ri}} : std::nullopt;
+                case TokenType::PLUS: {
+                    // Overflow check: if both positive and result negative, or both negative and result positive
+                    int64_t result = *li + *ri;
+                    if ((*ri > 0 && *li > INT64_MAX - *ri) || (*ri < 0 && *li < INT64_MIN - *ri)) {
+                        report_error("Compile-time integer overflow in addition: " +
+                                     std::to_string(*li) + " + " + std::to_string(*ri));
+                        return std::nullopt;
+                    }
+                    return ConstValue{result};
+                }
+                case TokenType::MINUS: {
+                    if ((*ri < 0 && *li > INT64_MAX + *ri) || (*ri > 0 && *li < INT64_MIN + *ri)) {
+                        report_error("Compile-time integer overflow in subtraction: " +
+                                     std::to_string(*li) + " - " + std::to_string(*ri));
+                        return std::nullopt;
+                    }
+                    return ConstValue{*li - *ri};
+                }
+                case TokenType::STAR: {
+                    // Simple overflow check for multiplication
+                    if (*li != 0 && *ri != 0) {
+                        if ((*li > 0 && *ri > 0 && *li > INT64_MAX / *ri) ||
+                            (*li < 0 && *ri < 0 && *li < INT64_MAX / *ri) ||
+                            (*li > 0 && *ri < 0 && *ri < INT64_MIN / *li) ||
+                            (*li < 0 && *ri > 0 && *li < INT64_MIN / *ri)) {
+                            report_error("Compile-time integer overflow in multiplication: " +
+                                         std::to_string(*li) + " * " + std::to_string(*ri));
+                            return std::nullopt;
+                        }
+                    }
+                    return ConstValue{*li * *ri};
+                }
+                case TokenType::SLASH:
+                    if (*ri == 0) {
+                        report_error("Compile-time integer division by zero");
+                        return std::nullopt;
+                    }
+                    return ConstValue{*li / *ri};
+                case TokenType::PERCENT:
+                    if (*ri == 0) {
+                        report_error("Compile-time integer modulo by zero");
+                        return std::nullopt;
+                    }
+                    return ConstValue{*li % *ri};
                 case TokenType::EQ_EQ:      return ConstValue{*li == *ri};
                 case TokenType::NOT_EQ:     return ConstValue{*li != *ri};
                 case TokenType::LESS:       return ConstValue{*li < *ri};
@@ -96,7 +136,14 @@ std::optional<ConstValue> ConstExprEvaluator::eval_binary(const BinaryExpr& expr
                 case TokenType::PLUS:       return ConstValue{*lf + *rf};
                 case TokenType::MINUS:      return ConstValue{*lf - *rf};
                 case TokenType::STAR:       return ConstValue{*lf * *rf};
-                case TokenType::SLASH:      return *rf != 0.0 ? std::optional{ConstValue{*lf / *rf}} : std::nullopt;
+                case TokenType::SLASH: {
+                    if (*rf == 0.0) {
+                        // IEEE 754: float / 0.0 = ±INF
+                        double inf = (*lf >= 0.0) ? INFINITY : -INFINITY;
+                        return ConstValue{inf};
+                    }
+                    return ConstValue{*lf / *rf};
+                }
                 case TokenType::EQ_EQ:      return ConstValue{*lf == *rf};
                 case TokenType::NOT_EQ:     return ConstValue{*lf != *rf};
                 case TokenType::LESS:       return ConstValue{*lf < *rf};

@@ -130,6 +130,7 @@ struct LiteralExpr {
         } string_value;
         bool bool_value;
     } value;
+    TokenType type_suffix = TokenType::EOF_TOKEN;  // Explicit suffix (EOF_TOKEN = none)
 };
 
 struct IdentifierExpr {
@@ -225,6 +226,26 @@ struct SizeofExpr {
     std::optional<ExprHandle> expr_operand;
 };
 
+// Function binding expression: #func(named_arg=value, ...)
+// Creates a partially-applied function
+struct BindingExpr {
+    Str target_function;
+    std::span<NamedArg> bound_args;  // Named parameter bindings
+};
+
+// Lambda/anonymous function parameter
+struct LambdaParam {
+    Str name;
+    TypeHandle type;
+};
+
+// Lambda/anonymous function expression: (params) -> RetType { body }
+struct LambdaExpr {
+    std::span<LambdaParam> parameters;
+    TypeHandle return_type;       // null handle if omitted (void)
+    StmtHandle body;              // Block statement
+};
+
 // Expression discriminated union
 using Expr = std::variant<
     BinaryExpr,
@@ -243,7 +264,9 @@ using Expr = std::variant<
     StructInitExpr,
     AllocExpr,
     FreeExpr,
-    SizeofExpr
+    SizeofExpr,
+    BindingExpr,
+    LambdaExpr
 >;
 
 // ============================================================================

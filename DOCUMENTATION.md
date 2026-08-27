@@ -12,6 +12,7 @@ Ibex is a statically typed, compiled systems language. This document details its
 - [7. Type Aliasing](#7-type-aliasing)
 - [8. Intrinsic Operators](#8-intrinsic-operators)
 - [9. Comparison with C++](#9-comparison-with-c)
+- [10. Inline Functions (Lambdas)](#10-inline-functions-lambdas)
 
 ---
 
@@ -168,7 +169,48 @@ project/
 ```
 
 
-## 6. Circular Dependencies
+## 6. Numeric Literals & Type Properties
+
+### Type Suffixes
+Append a type suffix to any numeric literal to explicitly control its precision:
+
+```ibex
+package examples {
+    main: () -> void {
+        a: i8 = 42i8;           // 8-bit signed
+        b: u64 = 1u << 56;      // u shorthand for unsigned 64-bit
+        c: f64 = 3.14159f64;    // 64-bit float
+        d := 100;               // defaults to i32
+        e := 3.14;              // defaults to f32
+    }
+}
+```
+
+The compiler checks for overflow:
+```ibex
+package overflow {
+    bad: () -> void {
+        x := 256u8;    // Error: overflows u8 (range: 0 to 255)
+        y := 128i8;    // Error: overflows i8 (range: -128 to 127)
+    }
+}
+```
+
+### Type Properties
+All numeric types expose compile-time properties:
+
+```ibex
+package props {
+    limits: () -> void {
+        max_i32 := i32.max;        // 2147483647
+        min_u8  := u8.min;         // 0
+        inf     := f64.infinity;   // +Infinity
+        eps     := f32.epsilon;    // ~1.19e-7
+    }
+}
+```
+
+## 7. Circular Dependencies
 
 The compiler detects circular module dependencies and emits clear error messages:
 
@@ -178,7 +220,7 @@ Circular dependency detected: a -> b -> a
 
 This occurs when module `a`'s packages import from module `b`, and module `b`'s packages import from module `a`.
 
-## 7. Parameterized Modules
+## 8. Parameterized Modules
 
 Modules can accept compile-time parameters:
 
@@ -204,7 +246,7 @@ package app {
 
 All arguments must be compile-time constants (literals or `const` variables). Omitting the `as` alias on a parameterized import is a compilation error.
 
-## 8. Compiler Flags
+## 9. Compiler Flags
 
 | Flag | Description |
 |------|-------------|
@@ -212,3 +254,27 @@ All arguments must be compile-time constants (literals or `const` variables). Om
 | `--import-recursive <path>` | Add a module search directory (recursive) |
 | `IBEX_MODULE_PATH` | Environment variable: semicolon-separated search paths |
 | `IBEX_MODULE_RECURSE=1` | Environment variable: enable recursive search for env paths |
+
+## 10. Inline Functions (Lambdas)
+
+Ibex supports anonymous inline functions (lambda expressions). They can be immediately invoked or assigned to variables:
+
+```ibex
+package examples {
+    demo: () -> void {
+        // Immediately Invoked Function Expression (IIFE)
+        x := ((y: i32) -> i32 { return y + 1; })(3);  // x is 4
+
+        // Multi-parameter lambda
+        sum := ((a: i32, b: i32) -> i32 { return a + b; })(10, 20);  // sum is 30
+
+        // Lambda assigned to a variable
+        inc := (x: i32) -> i32 { return x + 1; };
+        result := inc(10);  // result is 11
+
+        // Void return type can be omitted
+        printer := (msg: text) { return; };
+        printer("hello");
+    }
+}
+```

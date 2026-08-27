@@ -22,6 +22,8 @@
   - [3.10 Circular Dependencies](#310-circular-dependencies)
   - [3.11 Parameterized Modules](#311-parameterized-modules)
   - [3.12 Compiler Flags & Environment Variables](#312-compiler-flags--environment-variables)
+  - [3.13 Numeric Literals](#313-numeric-literals)
+  - [3.14 Inline Functions (Lambda Expressions)](#314-inline-functions-lambda-expressions)
 
 ---
 
@@ -110,6 +112,10 @@ TypeAliasDecl ::= [AttributeList] "using" Identifier "=" Type ";"
 UsingDecl ::= [AttributeList] "using" Identifier ":=" "#" Identifier "(" [BindingArgList] ")" ";"
 BindingArgList ::= BindingArg { "," BindingArg }
 BindingArg ::= [ Expr ]  /* Omitted Expr indicates an unbound parameter slot */
+
+NumericSuffix ::= "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "u" | "f32" | "f64"
+IntegerLiteral ::= Digits [ NumericSuffix ]
+FloatLiteral ::= Digits "." Digits [ NumericSuffix ]
 ```
 
 ### 2.2 Statements and Expressions
@@ -227,3 +233,68 @@ Applied via `[[name(args)]]`.
 - `--import-recursive <path>`: Add a recursive module search path.
 - `IBEX_MODULE_PATH`: Environment variable with semicolon-separated module search paths.
 - `IBEX_MODULE_RECURSE=1`: Environment variable to enable recursive search for paths from `IBEX_MODULE_PATH`.
+
+### 3.13 Numeric Literals
+
+#### Type Suffixes
+Numeric literals may carry an explicit type suffix to specify their precision:
+
+| Suffix | Type | Example |
+|--------|------|---------|
+| `i8` | 8-bit signed integer | `42i8` |
+| `i16` | 16-bit signed integer | `1000i16` |
+| `i32` | 32-bit signed integer | `42i32` (default for integers) |
+| `i64` | 64-bit signed integer | `100000i64` |
+| `u8` | 8-bit unsigned integer | `255u8` |
+| `u16` | 16-bit unsigned integer | `65535u16` |
+| `u32` | 32-bit unsigned integer | `1000u32` |
+| `u64` | 64-bit unsigned integer | `1u64` |
+| `u` | 64-bit unsigned (shorthand) | `1u` |
+| `f32` | 32-bit float | `3.14f32` (default for floats) |
+| `f64` | 64-bit float | `3.14f64` |
+
+#### Default Inference
+- Unsuffixed integer literals default to `i32`.
+- Unsuffixed floating-point literals default to `f32`.
+
+#### Overflow/Underflow
+- The compiler validates that literal values fit within their declared (or inferred) type range.
+- `256u8` → error: overflows u8 (range: 0 to 255)
+- `128i8` → error: overflows i8 (range: -128 to 127)
+- Compile-time constant evaluation also checks for overflow/underflow in arithmetic and division by zero.
+- Integer division by zero is a compile-time error.
+- Floating-point division by zero produces `±INF` per IEEE 754.
+
+#### Implicit Type Properties
+All numeric primitive types expose compile-time properties via dot syntax:
+
+| Property | Available On | Description |
+|----------|-------------|-------------|
+| `.min` | All numeric types | Minimum representable value |
+| `.max` | All numeric types | Maximum representable value |
+| `.infinity` | `f32`, `f64` | Positive infinity |
+| `.nan` | `f32`, `f64` | Quiet NaN |
+| `.signaling_nan` | `f32`, `f64` | Signaling NaN |
+| `.epsilon` | `f32`, `f64` | Machine epsilon |
+
+Accessing float-only properties on integer types is a compilation error.
+
+#### Reserved Types
+The following type keywords are reserved for future use: `bf16`, `fp16`, `fp8`, `fp4`. Using them in declarations produces a compilation error.
+
+### 3.14 Inline Functions (Lambda Expressions)
+
+#### Grammar
+```
+LambdaExpr ::= "(" [ LambdaParam { "," LambdaParam } ] ")" [ "->" Type ] "{" Statement* "}"
+LambdaParam ::= Identifier ":" Type
+```
+
+#### Semantics
+- Lambda expressions create anonymous functions that can be immediately invoked (IIFE) or assigned to variables.
+- Parameters are typed with the same syntax as function parameters: `name: Type`.
+- The return type (`-> Type`) is optional. When omitted, the lambda returns `void`.
+- Lambda body follows the same rules as function bodies.
+- When immediately invoked, the lambda is wrapped in parentheses and called: `((params) -> RetType { body })(args)`.
+- When assigned to a variable, the inferred type is a function type matching the lambda's signature.
+

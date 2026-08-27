@@ -73,6 +73,8 @@ public:
     void visit(const FreeExpr& expr) override;
     void visit(const BlockExpr& expr) override;
     void visit(const SizeofExpr& expr) override;
+    void visit(const BindingExpr& expr) override;
+    void visit(const LambdaExpr& expr) override;
 
     // StmtVisitor
     void visit(const BlockStmt& stmt) override;

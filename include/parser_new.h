@@ -134,6 +134,7 @@ private:
     ExprHandle parse_unary();
     ExprHandle parse_postfix();
     ExprHandle parse_primary();
+    ExprHandle parse_lambda_expr();
 
     // ========================================================================
     // TYPES

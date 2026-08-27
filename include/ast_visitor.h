@@ -51,6 +51,8 @@ public:
     virtual void visit(const FreeExpr& expr) = 0;
     virtual void visit(const BlockExpr& expr) = 0;
     virtual void visit(const SizeofExpr& expr) = 0;
+    virtual void visit(const BindingExpr& expr) = 0;
+    virtual void visit(const LambdaExpr& expr) = 0;
 };
 
 inline void visit_expr(const Expr& expr, ExprVisitor* visitor) {

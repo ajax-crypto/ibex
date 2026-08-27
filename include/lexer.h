@@ -106,6 +106,9 @@ enum class TokenType {
 
     // Ellipsis
     DOT_DOT_DOT,    // ... (variadic)
+
+    // Reserved floating point types (future)
+    BF16, FP16, FP8, FP4,
 };
 
 // Token structure
@@ -122,6 +125,9 @@ struct Token {
         double float_value;
     } value;
     bool is_float;
+
+    // Explicit type suffix on numeric literals (EOF_TOKEN = no suffix)
+    TokenType type_suffix = TokenType::EOF_TOKEN;
 
     Token() : type(TokenType::UNKNOWN), line(0), column(0), is_float(false) {}
     

@@ -61,16 +61,79 @@ Token Lexer::scan_number() {
         advance();
     }
 
-    // Check for float
+    bool is_float_lit = false;
+
+    // Check for float: digit.digit
     if (current_char() == '.' && is_digit(peek_char())) {
         advance();  // consume '.'
         while (is_digit(current_char())) {
             advance();
         }
-        return make_literal_token(TokenType::FLOAT_LITERAL);
+        is_float_lit = true;
     }
 
-    return make_literal_token(TokenType::INTEGER_LITERAL);
+    // Check for type suffix — peek ahead without consuming yet
+    TokenType suffix = TokenType::EOF_TOKEN;
+    size_t suffix_len = 0;
+
+    char c = current_char();
+    if (c == 'i' || c == 'u' || c == 'f') {
+        // Collect the suffix string by peeking
+        std::string suffix_str;
+        size_t pos = current_;
+        while (pos < source_.size() && (is_alpha(source_[pos]) || is_digit(source_[pos]))) {
+            suffix_str += source_[pos];
+            pos++;
+        }
+        // Make sure the suffix isn't part of a larger identifier (e.g., "32int")
+        // It should end at a non-alphanumeric char
+        if (pos < source_.size() && is_alphanumeric(source_[pos])) {
+            // Not a valid suffix — it's something like "32identifier"
+            // Don't consume, leave as plain literal
+        } else {
+            // Match known suffixes
+            if (suffix_str == "i8")  { suffix = TokenType::I8;  suffix_len = 2; }
+            else if (suffix_str == "i16") { suffix = TokenType::I16; suffix_len = 3; }
+            else if (suffix_str == "i32") { suffix = TokenType::I32; suffix_len = 3; }
+            else if (suffix_str == "i64") { suffix = TokenType::I64; suffix_len = 3; }
+            else if (suffix_str == "u8")  { suffix = TokenType::U8;  suffix_len = 2; }
+            else if (suffix_str == "u16") { suffix = TokenType::U16; suffix_len = 3; }
+            else if (suffix_str == "u32") { suffix = TokenType::U32; suffix_len = 3; }
+            else if (suffix_str == "u64") { suffix = TokenType::U64; suffix_len = 3; }
+            else if (suffix_str == "u")   { suffix = TokenType::U64; suffix_len = 1; }
+            else if (suffix_str == "f32") { suffix = TokenType::F32; suffix_len = 3; }
+            else if (suffix_str == "f64") { suffix = TokenType::F64; suffix_len = 3; }
+        }
+    }
+
+    // Validate suffix compatibility
+    if (suffix != TokenType::EOF_TOKEN) {
+        bool is_int_suffix = (suffix == TokenType::I8 || suffix == TokenType::I16 ||
+                              suffix == TokenType::I32 || suffix == TokenType::I64 ||
+                              suffix == TokenType::U8 || suffix == TokenType::U16 ||
+                              suffix == TokenType::U32 || suffix == TokenType::U64);
+        bool is_float_suffix = (suffix == TokenType::F32 || suffix == TokenType::F64);
+
+        if (is_float_lit && is_int_suffix) {
+            errors_.push_back("Line " + std::to_string(line_) + ": Float literal cannot have integer type suffix");
+            suffix = TokenType::EOF_TOKEN;
+            suffix_len = 0;
+        }
+        if (!is_float_lit && is_float_suffix) {
+            errors_.push_back("Line " + std::to_string(line_) + ": Integer literal cannot have float type suffix");
+            suffix = TokenType::EOF_TOKEN;
+            suffix_len = 0;
+        }
+    }
+
+    // Consume the suffix characters
+    for (size_t i = 0; i < suffix_len; ++i) {
+        advance();
+    }
+
+    Token token = make_literal_token(is_float_lit ? TokenType::FLOAT_LITERAL : TokenType::INTEGER_LITERAL);
+    token.type_suffix = suffix;
+    return token;
 }
 
 Token Lexer::scan_string() {
@@ -172,6 +235,10 @@ TokenType Lexer::keyword_type(std::string_view lexeme) {
         {"and", TokenType::AMPERSAND},
         {"xor", TokenType::CARET},
         {"complement", TokenType::TILDE},
+        {"bf16", TokenType::BF16},
+        {"fp16", TokenType::FP16},
+        {"fp8", TokenType::FP8},
+        {"fp4", TokenType::FP4},
     };
 
     auto it = keywords.find(lexeme);

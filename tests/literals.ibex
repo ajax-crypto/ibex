@@ -1,0 +1,57 @@
+// Test: Valid literal type suffixes
+package literal_tests {
+    test_integer_suffixes: () -> void {
+        // Signed integer suffixes
+        a: i8 = 42i8;
+        b: i16 = 1000i16;
+        c: i32 = 42i32;
+        d: i64 = 100000i64;
+
+        // Unsigned integer suffixes
+        e: u8 = 255u8;
+        f: u16 = 65535u16;
+        g: u32 = 1000u32;
+        h: u64 = 1u64;
+
+        // Shorthand 'u' for unsigned
+        j: u64 = 1u;
+
+        // Default inference (unsuffixed = i32)
+        k := 42;
+
+        // Boundary values (note: -128i8 not testable because -(128i8) overflows the positive check)
+        max_i8: i8 = 127i8;
+        max_u8: u8 = 255u8;
+        zero_u8: u8 = 0u8;
+    }
+
+    test_float_suffixes: () -> void {
+        // Float suffixes
+        a: f32 = 3.14f32;
+        b: f64 = 3.14159265358979f64;
+
+        // Default inference (unsuffixed = f32)
+        c := 3.14;
+    }
+
+    test_type_properties: () -> void {
+        // Integer type properties
+        max_i32 := i32.max;
+        min_i32 := i32.min;
+        max_u8  := u8.max;
+        min_u8  := u8.min;
+        max_i64 := i64.max;
+        min_i64 := i64.min;
+        max_u64 := u64.max;
+
+        // Float type properties
+        inf     := f64.infinity;
+        nan_val := f64.nan;
+        snan    := f64.signaling_nan;
+        eps     := f64.epsilon;
+
+        f32_inf := f32.infinity;
+        f32_max := f32.max;
+        f32_min := f32.min;
+    }
+}

@@ -2,6 +2,9 @@
 #include "const_eval.h"
 #include <iostream>
 #include <functional>
+#include <climits>
+#include <cmath>
+#include <cfloat>
 
 namespace ibex {
 
@@ -401,7 +404,66 @@ void SemanticAnalyzer::visit(const UnaryExpr& expr) {
     if (!expr.operand.is_null()) visit_expr(program_.expressions[expr.operand.index], this);
 }
 
-void SemanticAnalyzer::visit(const LiteralExpr& expr) {}
+void SemanticAnalyzer::visit(const LiteralExpr& expr) {
+    if (expr.kind == LiteralExpr::Kind::INTEGER) {
+        int64_t val = expr.value.int_value;
+        TokenType suffix = expr.type_suffix;
+        
+        // If no suffix, default to i32 — validate range
+        if (suffix == TokenType::EOF_TOKEN) {
+            suffix = TokenType::I32;
+        }
+
+        switch (suffix) {
+            case TokenType::I8:
+                if (val < -128 || val > 127)
+                    report_error("Integer literal " + std::to_string(val) + " overflows i8 (range: -128 to 127)");
+                break;
+            case TokenType::I16:
+                if (val < -32768 || val > 32767)
+                    report_error("Integer literal " + std::to_string(val) + " overflows i16 (range: -32768 to 32767)");
+                break;
+            case TokenType::I32:
+                if (val < INT32_MIN || val > INT32_MAX)
+                    report_error("Integer literal " + std::to_string(val) + " overflows i32 (range: -2147483648 to 2147483647)");
+                break;
+            case TokenType::I64:
+                // Already stored as int64_t, can't overflow in storage
+                break;
+            case TokenType::U8:
+                if (val < 0 || val > 255)
+                    report_error("Integer literal " + std::to_string(val) + " overflows u8 (range: 0 to 255)");
+                break;
+            case TokenType::U16:
+                if (val < 0 || val > 65535)
+                    report_error("Integer literal " + std::to_string(val) + " overflows u16 (range: 0 to 65535)");
+                break;
+            case TokenType::U32:
+                if (val < 0 || val > 4294967295LL)
+                    report_error("Integer literal " + std::to_string(val) + " overflows u32 (range: 0 to 4294967295)");
+                break;
+            case TokenType::U64:
+                if (val < 0)
+                    report_error("Integer literal " + std::to_string(val) + " cannot be negative for u64");
+                break;
+            default: break;
+        }
+    } else if (expr.kind == LiteralExpr::Kind::FLOAT) {
+        double val = expr.value.float_value;
+        TokenType suffix = expr.type_suffix;
+
+        if (suffix == TokenType::EOF_TOKEN) {
+            suffix = TokenType::F32;
+        }
+
+        if (suffix == TokenType::F32) {
+            if (val != 0.0 && (val > 3.4028235e+38 || val < -3.4028235e+38)) {
+                report_error("Float literal overflows f32 range");
+            }
+        }
+        // f64 can hold any double, no check needed
+    }
+}
 
 void SemanticAnalyzer::visit(const IdentifierExpr& expr) {
     if (auto sym = find_symbol(expr.name)) {
@@ -558,7 +620,43 @@ void SemanticAnalyzer::visit(const MemberExpr& expr) {
     }
 }
 
-void SemanticAnalyzer::visit(const TypeMemberExpr& expr) {}
+void SemanticAnalyzer::visit(const TypeMemberExpr& expr) {
+    std::string type_name(expr.type_name.ptr(), expr.type_name.len());
+    std::string member(expr.member.ptr(), expr.member.len());
+
+    // Check for reserved types
+    if (type_name == "bf16" || type_name == "fp16" || type_name == "fp8" || type_name == "fp4") {
+        report_error("Type '" + type_name + "' is reserved for future use");
+        return;
+    }
+
+    // Determine if it's a known numeric primitive
+    bool is_signed_int = (type_name == "i8" || type_name == "i16" || type_name == "i32" || type_name == "i64");
+    bool is_unsigned_int = (type_name == "u8" || type_name == "u16" || type_name == "u32" || type_name == "u64" || type_name == "byte");
+    bool is_float = (type_name == "f32" || type_name == "f64");
+    bool is_numeric = is_signed_int || is_unsigned_int || is_float;
+
+    if (!is_numeric) {
+        // Not a primitive numeric type — fall through to default behavior (enum/struct members)
+        return;
+    }
+
+    // Valid properties for all numeric types: .min, .max
+    // Additional for floats: .infinity, .nan, .signaling_nan, .epsilon
+    bool is_valid_property = (member == "min" || member == "max");
+    if (is_float) {
+        is_valid_property = is_valid_property || member == "infinity" || member == "nan" ||
+                            member == "signaling_nan" || member == "epsilon";
+    }
+
+    if (!is_valid_property) {
+        if ((member == "infinity" || member == "nan" || member == "signaling_nan" || member == "epsilon") && !is_float) {
+            report_error("Property '." + member + "' is only available on floating point types (f32, f64), not '" + type_name + "'");
+        } else {
+            report_error("Unknown type property '" + type_name + "." + member + "'");
+        }
+    }
+}
 
 void SemanticAnalyzer::visit(const IndexExpr& expr) {
     if (!expr.object.is_null()) visit_expr(program_.expressions[expr.object.index], this);
@@ -665,6 +763,35 @@ void SemanticAnalyzer::visit(const BlockExpr& expr) {
 void SemanticAnalyzer::visit(const SizeofExpr& expr) {
     if (expr.type_operand) visit_type(program_.types[expr.type_operand->index], this);
     if (expr.expr_operand) visit_expr(program_.expressions[expr.expr_operand->index], this);
+}
+
+void SemanticAnalyzer::visit(const BindingExpr& expr) {
+    // Validate the target function exists
+    std::string target(expr.target_function.ptr(), expr.target_function.len());
+    auto sym = find_symbol(expr.target_function);
+    if (!sym) {
+        report_error("Undefined function '" + target + "' in binding expression");
+    }
+
+    // Visit all bound argument values
+    for (const auto& arg : expr.bound_args) {
+        if (!arg.value.is_null()) {
+            visit_expr(program_.expressions[arg.value.index], this);
+        }
+    }
+}
+
+void SemanticAnalyzer::visit(const LambdaExpr& expr) {
+    // Lambda creates its own scope with parameters
+    push_scope();
+    for (const auto& param : expr.parameters) {
+        add_symbol(param.name, param.type);
+    }
+    // Visit the body
+    if (!expr.body.is_null()) {
+        visit_stmt(program_.statements[expr.body.index], this);
+    }
+    pop_scope();
 }
 
 // ----------------------------------------------------------------------------
