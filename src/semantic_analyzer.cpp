@@ -1,4 +1,5 @@
 #include "semantic_analyzer.h"
+#include "const_eval.h"
 #include <iostream>
 #include <functional>
 
@@ -10,55 +11,79 @@ SemanticAnalyzer::SemanticAnalyzer(Program& program, TypeRegistry& type_registry
 }
 
 bool SemanticAnalyzer::analyze() {
-    // Pre-pass: register all top-level declarations (functions, structs) so forward references work
-    for (size_t i = 0; i < program_.declarations.size(); ++i) {
-        auto& decl = program_.declarations[i];
-        DeclHandle handle{static_cast<uint32_t>(i)};
+    // Pass 1: Build Packages, Modules, and register top-level declarations
+    std::string current_mod = "";
+    
+    // Helper to register declarations into a package scope
+    auto register_decl = [&](DeclHandle handle, const std::string& pkg_name) {
+        if (handle.is_null()) return;
+        auto& decl = program_.declarations[handle.index];
         if (auto* func = std::get_if<FunctionDecl>(&decl)) {
-            bool found = false;
-            for (const auto& sym : scopes_.front().symbols) {
-                if (sym.name == func->name) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                Symbol sym{func->name, TypeHandle{0}, handle, true, false, false};
-                scopes_.front().symbols.push_back(sym);
-            }
+            Symbol sym{func->name, TypeHandle{0}, handle, true, false, false};
+            packages_[pkg_name].symbols.push_back(sym);
         } else if (auto* s = std::get_if<StructDecl>(&decl)) {
-            bool found = false;
-            for (const auto& sym : scopes_.front().symbols) {
-                if (sym.name == s->name) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                Symbol sym{s->name, TypeHandle{0}, handle, true, false, false};
-                scopes_.front().symbols.push_back(sym);
-            }
+            Symbol sym{s->name, TypeHandle{0}, handle, true, false, false};
+            packages_[pkg_name].symbols.push_back(sym);
+        } else if (auto* e = std::get_if<EnumDecl>(&decl)) {
+            Symbol sym{e->name, TypeHandle{0}, handle, true, false, false};
+            packages_[pkg_name].symbols.push_back(sym);
+        } else if (auto* f = std::get_if<FlagDecl>(&decl)) {
+            Symbol sym{f->name, TypeHandle{0}, handle, true, false, false};
+            packages_[pkg_name].symbols.push_back(sym);
+        } else if (auto* u = std::get_if<TypeAliasDecl>(&decl)) {
+            Symbol sym{u->name, TypeHandle{0}, handle, true, false, false};
+            packages_[pkg_name].symbols.push_back(sym);
         }
-    }
-
-    // Pass 1.5: Build Packages and Modules
-    for (size_t i = 0; i < program_.declarations.size(); ++i) {
-        auto& decl = program_.declarations[i];
+    };
+    
+    for (auto handle : program_.top_level_declarations) {
+        if (handle.is_null()) continue;
+        auto& decl = program_.declarations[handle.index];
+        
         if (auto* pkg = std::get_if<PackageDecl>(&decl)) {
             std::string pkg_name = std::string(pkg->name.ptr(), pkg->name.len());
-            if (packages_.find(pkg_name) == packages_.end()) {
+            // Check for split packages and same-name packages in the same file
+            // Since we don't have file boundaries here easily, we just check if it exists
+            if (packages_.find(pkg_name) != packages_.end()) {
+                report_warning("Package '" + pkg_name + "' is split across multiple blocks or files. Consolidating.");
+            } else {
                 packages_[pkg_name] = Scope{};
             }
-        } else if (auto* mod = std::get_if<ModuleDecl>(&decl)) {
-            std::string mod_name = std::string(mod->name.ptr(), mod->name.len());
-            modules_[mod_name] = {};
-            for (auto inner_handle : mod->declarations) {
+            
+            for (auto inner_handle : pkg->declarations) {
+                // TODO: we should check for name collisions inside the package scope!
                 if (inner_handle.is_null()) continue;
                 auto& inner_decl = program_.declarations[inner_handle.index];
-                if (auto* export_pkgs = std::get_if<ExportPackagesDecl>(&inner_decl)) {
-                    for (Str p_name : export_pkgs->package_names) {
-                        modules_[mod_name].push_back(std::string(p_name.ptr(), p_name.len()));
+                
+                // Name collision checking
+                Str sym_name;
+                if (auto* f = std::get_if<FunctionDecl>(&inner_decl)) sym_name = f->name;
+                else if (auto* s = std::get_if<StructDecl>(&inner_decl)) sym_name = s->name;
+                else if (auto* e = std::get_if<EnumDecl>(&inner_decl)) sym_name = e->name;
+                else if (auto* fl = std::get_if<FlagDecl>(&inner_decl)) sym_name = fl->name;
+                else if (auto* u = std::get_if<TypeAliasDecl>(&inner_decl)) sym_name = u->name;
+                else if (auto* v = std::get_if<VariableDecl>(&inner_decl)) sym_name = v->name;
+                
+                if (sym_name.ptr()) {
+                    for (const auto& existing : packages_[pkg_name].symbols) {
+                        if (existing.name == sym_name) {
+                            report_error("Name collision: symbol '" + std::string(sym_name.ptr(), sym_name.len()) + "' already exists in package '" + pkg_name + "'");
+                            break;
+                        }
                     }
+                }
+                
+                register_decl(inner_handle, pkg_name);
+            }
+        } else if (auto* mod = std::get_if<ModuleDecl>(&decl)) {
+            current_mod = std::string(mod->name.ptr(), mod->name.len());
+            if (modules_.find(current_mod) == modules_.end()) {
+                modules_[current_mod] = {};
+            }
+        } else if (auto* export_pkgs = std::get_if<ExportPackagesDecl>(&decl)) {
+            if (!current_mod.empty()) {
+                for (Str p_name : export_pkgs->package_names) {
+                    modules_[current_mod].push_back(std::string(p_name.ptr(), p_name.len()));
                 }
             }
         }
@@ -70,8 +95,12 @@ bool SemanticAnalyzer::analyze() {
             visit_decl(program_.declarations[decl_handle.index], this);
         }
     }
+
     return !has_errors();
 }
+
+
+
 
 void SemanticAnalyzer::push_scope() {
     scopes_.push_back(Scope{});
@@ -111,6 +140,7 @@ void SemanticAnalyzer::add_symbol(Str name, TypeHandle type, DeclHandle decl_han
 
 std::optional<Symbol> SemanticAnalyzer::find_symbol(Str name) {
     std::cout << "find_symbol: " << std::string(name.ptr(), name.len()) << "\n";
+    // 1. Check local scopes (and global built-ins in scopes_[0])
     for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
         for (auto& sym : it->symbols) {
             if (sym.name == name) {
@@ -119,6 +149,61 @@ std::optional<Symbol> SemanticAnalyzer::find_symbol(Str name) {
             }
         }
     }
+    
+    // 2. Check current package
+    if (!current_package_.empty()) {
+        auto it = packages_.find(current_package_);
+        if (it != packages_.end()) {
+            for (auto& sym : it->second.symbols) {
+                if (sym.name == name) {
+                    sym.is_used = true;
+                    return sym;
+                }
+            }
+        }
+    }
+    
+    // 3. Check current imports (wildcard imports)
+    for (const auto& imp : current_imports_) {
+        if (imp.is_wildcard && imp.package_name) {
+            std::string pkg_name(imp.package_name->ptr(), imp.package_name->len());
+            auto it = packages_.find(pkg_name);
+            if (it != packages_.end()) {
+                for (auto& sym : it->second.symbols) {
+                    if (sym.name == name) {
+                        sym.is_used = true;
+                        return sym;
+                    }
+                }
+            }
+        }
+    }
+    
+    // 4. Check if it's a namespace (module or package alias)
+    std::string sname(name.ptr(), name.len());
+    for (const auto& imp : current_imports_) {
+        std::string mod_name(imp.module_name.ptr(), imp.module_name.len());
+        if (sname == mod_name) {
+            // It's a module reference
+            return Symbol{name, TypeHandle{0}, DeclHandle{}, true, false, true, true, mod_name + ".*"};
+        }
+        if (imp.package_name) {
+            std::string pkg_name(imp.package_name->ptr(), imp.package_name->len());
+            if (imp.alias && sname == std::string(imp.alias->ptr(), imp.alias->len())) {
+                return Symbol{name, TypeHandle{0}, DeclHandle{}, true, false, true, true, pkg_name};
+            } else if (!imp.alias && sname == pkg_name) {
+                return Symbol{name, TypeHandle{0}, DeclHandle{}, true, false, true, true, pkg_name};
+            }
+        }
+        // Wildcard import with alias: import mod.* as alias
+        if (imp.is_wildcard && imp.alias) {
+            std::string alias_name(imp.alias->ptr(), imp.alias->len());
+            if (sname == alias_name) {
+                return Symbol{name, TypeHandle{0}, DeclHandle{}, true, false, true, true, mod_name + ".*"};
+            }
+        }
+    }
+
     return std::nullopt;
 }
 
@@ -330,12 +415,40 @@ void SemanticAnalyzer::visit(const CallExpr& expr) {
     // Find the function declaration being called
     const FunctionDecl* func_decl = nullptr;
     if (!expr.function.is_null()) {
-        if (auto* id_expr = std::get_if<IdentifierExpr>(&program_.expressions[expr.function.index])) {
-            for (const auto& decl_variant : program_.declarations) {
-                if (auto* f = std::get_if<FunctionDecl>(&decl_variant)) {
-                    if (f->name == id_expr->name) {
-                        func_decl = f;
-                        break;
+        auto& func_expr = program_.expressions[expr.function.index];
+        if (auto* id_expr = std::get_if<IdentifierExpr>(&func_expr)) {
+            auto sym = find_symbol(id_expr->name);
+            if (sym && !sym->decl_handle.is_null()) {
+                func_decl = std::get_if<FunctionDecl>(&program_.declarations[sym->decl_handle.index]);
+            }
+        } else if (auto* mem_expr = std::get_if<MemberExpr>(&func_expr)) {
+            if (auto* id_obj = std::get_if<IdentifierExpr>(&program_.expressions[mem_expr->object.index])) {
+                auto sym = find_symbol(id_obj->name);
+                if (sym && sym->is_namespace && !sym->namespace_target.ends_with(".*")) {
+                    auto pkg_it = packages_.find(sym->namespace_target);
+                    if (pkg_it != packages_.end()) {
+                        for (auto& pkg_sym : pkg_it->second.symbols) {
+                            if (pkg_sym.name == mem_expr->member && !pkg_sym.decl_handle.is_null()) {
+                                func_decl = std::get_if<FunctionDecl>(&program_.declarations[pkg_sym.decl_handle.index]);
+                                break;
+                            }
+                        }
+                    }
+                }
+            } else if (auto* nested_mem = std::get_if<MemberExpr>(&program_.expressions[mem_expr->object.index])) {
+                if (auto* mod_id = std::get_if<IdentifierExpr>(&program_.expressions[nested_mem->object.index])) {
+                    auto sym = find_symbol(mod_id->name);
+                    if (sym && sym->is_namespace && sym->namespace_target.ends_with(".*")) {
+                        std::string pkg_name = std::string(nested_mem->member.ptr(), nested_mem->member.len());
+                        auto pkg_it = packages_.find(pkg_name);
+                        if (pkg_it != packages_.end()) {
+                            for (auto& pkg_sym : pkg_it->second.symbols) {
+                                if (pkg_sym.name == mem_expr->member && !pkg_sym.decl_handle.is_null()) {
+                                    func_decl = std::get_if<FunctionDecl>(&program_.declarations[pkg_sym.decl_handle.index]);
+                                    break;
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -470,12 +583,35 @@ void SemanticAnalyzer::visit(const ArrayLiteralExpr& expr) {
 
 void SemanticAnalyzer::visit(const StructInitExpr& expr) {
     const StructDecl* struct_decl = nullptr;
-    for (const auto& decl_variant : program_.declarations) {
-        if (auto* s = std::get_if<StructDecl>(&decl_variant)) {
-            if (s->name == expr.type_name) {
-                struct_decl = s;
-                break;
+    std::string type_name_str(expr.type_name.ptr(), expr.type_name.len());
+    
+    auto dot_idx = type_name_str.find('.');
+    if (dot_idx != std::string::npos) {
+        std::string obj_name = type_name_str.substr(0, dot_idx);
+        std::string mem_name = type_name_str.substr(dot_idx + 1);
+        
+        // Let's just create a dummy Str for find_symbol since it just uses ptr and len
+        Str dummy_obj = {obj_name.data(), obj_name.size()};
+        auto sym = find_symbol(dummy_obj);
+        if (sym && sym->is_namespace) {
+            std::string target = sym->namespace_target;
+            if (target.ends_with(".*")) target = target.substr(0, target.size() - 2);
+            
+            auto pkg_it = packages_.find(target);
+            if (pkg_it != packages_.end()) {
+                Str dummy_mem = {mem_name.data(), mem_name.size()};
+                for (auto& pkg_sym : pkg_it->second.symbols) {
+                    if (pkg_sym.name == dummy_mem && !pkg_sym.decl_handle.is_null()) {
+                        struct_decl = std::get_if<StructDecl>(&program_.declarations[pkg_sym.decl_handle.index]);
+                        break;
+                    }
+                }
             }
+        }
+    } else {
+        auto sym = find_symbol(expr.type_name);
+        if (sym && !sym->decl_handle.is_null()) {
+            struct_decl = std::get_if<StructDecl>(&program_.declarations[sym->decl_handle.index]);
         }
     }
 
@@ -642,16 +778,20 @@ void SemanticAnalyzer::visit(const ConstModifierStmt& stmt) {
 // ----------------------------------------------------------------------------
 void SemanticAnalyzer::visit(const PackageDecl& decl) {
     validate_attributes(decl.attributes);
-    push_scope();
+    std::string pkg_name = std::string(decl.name.ptr(), decl.name.len());
+    
+    // Scoped changes to current_package_
+    std::string prev_package = current_package_;
+    current_package_ = pkg_name;
+    
+    push_scope(); // Might not need this if we don't treat packages as lexical scopes, but good for local variables if any
+    
     for (auto d : decl.declarations) {
         if (!d.is_null()) visit_decl(program_.declarations[d.index], this);
     }
-    std::string pkg_name = std::string(decl.name.ptr(), decl.name.len());
-    auto& pkg_scope = packages_[pkg_name];
-    for (const auto& sym : scopes_.back().symbols) {
-        pkg_scope.symbols.push_back(sym);
-    }
+    
     pop_scope();
+    current_package_ = prev_package;
 }
 
 void SemanticAnalyzer::visit(const ModuleDecl& decl) {
@@ -664,72 +804,52 @@ void SemanticAnalyzer::visit(const ModuleDecl& decl) {
 }
 
 void SemanticAnalyzer::visit(const ImportDecl& decl) {
-    std::string mod_name = std::string(decl.module_name.ptr(), decl.module_name.len());
+    validate_attributes(decl.attributes);
+    // Add to current file's imports
+    current_imports_.push_back(decl);
+    
+    std::string mod_name(decl.module_name.ptr(), decl.module_name.len());
     if (modules_.find(mod_name) == modules_.end()) {
-        report_error("Module '" + mod_name + "' not found");
+        report_error("Importing from unknown module '" + mod_name + "'");
         return;
     }
-
-    if (decl.alias) {
-        // import mod.pkg as m
-        if (!decl.package_name) {
-            report_error("Alias requires a package name");
+    
+    // Validate parameterized module arguments
+    if (!decl.module_args.empty()) {
+        // Enforce alias requirement (parser already checks, but belt-and-suspenders)
+        if (!decl.alias.has_value()) {
+            report_error("Parameterized module import '" + mod_name + "' requires 'as' alias");
             return;
         }
-        std::string pkg_name = std::string(decl.package_name->ptr(), decl.package_name->len());
-        std::string alias_name = std::string(decl.alias->ptr(), decl.alias->len());
         
-        // Verify module exports this package
-        const auto& exports = modules_[mod_name];
-        if (std::find(exports.begin(), exports.end(), pkg_name) == exports.end()) {
+        // Evaluate all arguments as compile-time constants
+        ConstExprEvaluator evaluator(program_);
+        for (size_t i = 0; i < decl.module_args.size(); ++i) {
+            auto val = evaluator.evaluate(decl.module_args[i]);
+            if (!val.has_value()) {
+                report_error("Argument " + std::to_string(i + 1) + " to parameterized module '" +
+                             mod_name + "' is not a compile-time constant");
+            }
+        }
+    }
+    
+    if (decl.package_name) {
+        std::string pkg_name(decl.package_name->ptr(), decl.package_name->len());
+        bool is_exported = false;
+        for (const auto& exp : modules_[mod_name]) {
+            if (exp == pkg_name) {
+                is_exported = true;
+                break;
+            }
+        }
+        if (!is_exported) {
             report_error("Module '" + mod_name + "' does not export package '" + pkg_name + "'");
-            return;
         }
-
-        // Add namespace symbol
-        Symbol sym{
-            .name = decl.alias.value(),
-            .type = TypeHandle{0},
-            .decl_handle = DeclHandle{},
-            .is_const = true,
-            .is_used = false,
-            .allow_unused = true,
-            .is_namespace = true,
-            .namespace_target = pkg_name
-        };
-        scopes_.back().symbols.push_back(sym);
-    } else if (decl.is_wildcard) {
-        // import mod.*
-        const auto& exports = modules_[mod_name];
-        for (const auto& pkg_name : exports) {
-            // We just add a namespace symbol for each exported package under its own name
-            // Note: We need a Str pointing to the package name... but Str requires a ptr and len.
-            // For simplicity, we assume we can look up the original package name Str.
-            // But we don't have the Str easily. Let's create a dummy Str or allocate one, but this is a semantic analyzer.
-            // Actually, if we just want to import ALL MEMBERS of all packages into the global scope? 
-            // "import <module>.* // import all packages, access via <module>.<package>.member"
-            // Wait! The user says "access via <module>.<package>.member".
-            // So `import mod.*` means we add `mod` as a namespace?
-            // "import <module>.* // import all packages, access via <module>.<package>.member"
-            // Let's add `mod` as a namespace pointing to a special multi-package scope?
-            // This is tricky. Let's just add `mod` as a namespace and handle it in MemberExpr.
-        }
-        Symbol sym{
-            .name = decl.module_name,
-            .type = TypeHandle{0},
-            .decl_handle = DeclHandle{},
-            .is_const = true,
-            .is_used = false,
-            .allow_unused = true,
-            .is_namespace = true,
-            .namespace_target = mod_name + ".*" // Special wildcard namespace
-        };
-        scopes_.back().symbols.push_back(sym);
     }
 }
 
 void SemanticAnalyzer::visit(const ExportPackagesDecl& decl) {
-    // Handled semantically during module exports validation in Pre-Pass
+    // Handled in pre-pass
 }
 
 void SemanticAnalyzer::visit(const TypeAliasDecl& decl) {

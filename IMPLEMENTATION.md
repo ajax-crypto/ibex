@@ -12,6 +12,9 @@ The Ibex compiler (`ibexc`) is written in C++20. It uses a custom-built, arena-a
 - [2. C++ Coding Standards](#2-c-coding-standards)
   - [2.1 Allowed Features (USE)](#21-allowed-features-use)
   - [2.2 Banned Features (DO NOT USE)](#22-banned-features-do-not-use)
+- [Circular Dependency Detection](#circular-dependency-detection)
+- [Constant Expression Evaluator](#constant-expression-evaluator)
+- [Parameterized Modules](#parameterized-modules)
 
 ---
 
@@ -62,3 +65,15 @@ The compiler is engineered for **blazing-fast compilation speed** (both for pars
 - **Smart Pointers**: No `std::shared_ptr` or reference-counting paradigms.
 - **Pointer-Chasing**: Avoid fragmented structures (e.g., linked lists, trees built with distributed node pointers). Use Handles/Indices referencing contiguous arrays.
 - **Heavy Standard Libraries**: Avoid the `<ranges>` library as it heavily inflates compile times.
+
+## Circular Dependency Detection
+
+After `ModuleScanner` discovers all `.module.ibex` files, it performs a lightweight lex of each module's `.ibex` package files to extract `import` token patterns. These are assembled into a directed dependency graph (`module -> {dependencies}`). A DFS with 3-color marking (white/gray/black) detects back edges, which indicate cycles. Self-cycles (a module importing itself) are caught during graph construction.
+
+## Constant Expression Evaluator
+
+`ConstExprEvaluator` (`const_eval.h/.cpp`) evaluates AST `ExprHandle` nodes to `ConstValue` (variant of `int64_t`, `double`, `bool`, `std::string`). Supports literal evaluation, named constant lookup, binary operations (`+`, `-`, `*`, `/`, `%`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `&&`, `||`), unary operations (`-`, `!`), and string concatenation. Used for parameterized module argument validation and conditional export evaluation.
+
+## Parameterized Modules
+
+`ModuleDecl` carries a `std::vector<ModuleParam>` for typed parameters. `ImportDecl` carries `std::vector<ExprHandle>` for compile-time arguments. The parser enforces that parameterized imports use `as` aliases. `ModuleScanner::evaluate_conditional_exports()` binds parameter values and re-evaluates export declarations to determine which packages are available for a given parameterization.

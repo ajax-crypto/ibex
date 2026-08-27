@@ -1,3 +1,4 @@
+#include "module_scanner.h"
 #include <iostream>
 #include <cassert>
 #include "parser_new.h"
@@ -29,14 +30,56 @@ int main(int argc, char** argv) {
     ibex::Arena arena;
     ibex::Program program(arena);
     
+    ibex::ModuleScanner scanner(program, arena);
+    
+    std::vector<std::string> input_files;
+    
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--import" && i + 1 < argc) {
+            scanner.add_search_path(argv[++i], false);
+        } else if (arg == "--import-recursive" && i + 1 < argc) {
+            scanner.add_search_path(argv[++i], true);
+        } else {
+            input_files.push_back(arg);
+        }
+    }
+    
+    if (const char* env_path = std::getenv("IBEX_MODULE_PATH")) {
+        bool recursive = false;
+        if (const char* env_rec = std::getenv("IBEX_MODULE_RECURSE")) {
+            if (std::string(env_rec) == "1") recursive = true;
+        }
+        
+        std::stringstream ss(env_path);
+        std::string path;
+        while (std::getline(ss, path, ';')) {
+            if (!path.empty()) scanner.add_search_path(path, recursive);
+        }
+    }
+    
+    std::cerr << "Scanning modules...\n";
+    if (!scanner.scan()) {
+        std::cerr << "Module scanning failed:\n";
+        for (const auto& err : scanner.get_errors()) {
+            std::cerr << err << "\n";
+        }
+        return 1;
+    }
+    
+    auto mod_files = scanner.get_source_files();
+    for (const auto& f : mod_files) {
+        input_files.push_back(f.string());
+    }
+    
     std::vector<std::unique_ptr<std::string>> file_contents;
     std::vector<ibex::Token> tokens;
     
-    if (argc > 1) {
-        for (int i = 1; i < argc; ++i) {
-            std::ifstream file(argv[i]);
+    if (!input_files.empty()) {
+        for (const auto& file_path : input_files) {
+            std::ifstream file(file_path);
             if (!file.is_open()) {
-                std::cerr << "Could not open file: " << argv[i] << "\n";
+                std::cerr << "Could not open file: " << file_path << "\n";
                 return 1;
             }
             std::stringstream buffer;
@@ -44,11 +87,9 @@ int main(int argc, char** argv) {
             file_contents.push_back(std::make_unique<std::string>(buffer.str()));
         }
     } else {
-        file_contents.push_back(std::make_unique<std::string>(R"(
-            flag Permissions { Read, Write, Execute }
-        )"));
+        file_contents.push_back(std::make_unique<std::string>("flag Permissions { Read, Write, Execute }"));
     }
-    
+
     std::cerr << "Lexing...\n" << std::flush;
     for (size_t i = 0; i < file_contents.size(); ++i) {
         ibex::Lexer lexer(*file_contents[i]);
@@ -66,22 +107,22 @@ int main(int argc, char** argv) {
     }
 
     std::cerr << "Parsing...\n" << std::flush;
-    ibex::ParserNew parser(tokens, arena);
+
+    ibex::ParserNew parser(tokens, program);
     parser.parse_program();
-    bool success = !parser.has_errors();
     
-    if (!success) {
-        std::cerr << "Parser failed!\n";
+    if (parser.has_errors()) {
+        std::cerr << "Syntax analysis failed:\n";
         for (const auto& err : parser.get_errors()) {
             std::cerr << err << "\n";
         }
         return 1;
     }
-    
+
     std::cerr << "Semantic analysis...\n" << std::flush;
     try {
         ibex::TypeRegistry type_registry(arena);
-        ibex::SemanticAnalyzer semantic(parser.program(), type_registry);
+        ibex::SemanticAnalyzer semantic(program, type_registry);
         semantic.analyze();
         
         // Print any warnings

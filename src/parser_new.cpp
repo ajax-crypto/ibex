@@ -5,8 +5,8 @@
 
 namespace ibex {
 
-ParserNew::ParserNew(const std::vector<Token>& tokens, Arena& arena)
-    : tokens_(tokens), program_(arena) {}
+ParserNew::ParserNew(const std::vector<Token>& tokens, Program& program)
+    : tokens_(tokens), program_(program) {}
 
 // ============================================================================
 // HELPERS
@@ -199,19 +199,12 @@ DeclHandle ParserNew::parse_declaration() {
 
     if (check(TokenType::STRUCT)) { advance(); return parse_struct_decl(attrs); }
 
-    if (check(TokenType::PACKAGE)) { advance(); return parse_package_decl(attrs, false); }
+    if (check(TokenType::PACKAGE)) { advance(); return parse_package_decl(attrs); }
     if (check(TokenType::EXPORT)) { 
         advance(); 
         if (check(TokenType::PACKAGE)) {
             advance();
-            // It could be `export package <name> { ... }` or `export package p1, p2;`
-            // Let's check if there is a comma or semicolon ahead.
-            // A package decl must have a '{' after the name.
-            if (peek().type == TokenType::LBRACE) {
-                return parse_package_decl(attrs, true);
-            } else {
-                return parse_export_packages_decl(attrs);
-            }
+            return parse_export_packages_decl(attrs);
         }
         error("Expected 'package' after 'export'");
         return DeclHandle();
@@ -418,7 +411,7 @@ DeclHandle ParserNew::parse_struct_decl(std::span<Attribute> attrs) {
     return store_decl(decl);
 }
 
-DeclHandle ParserNew::parse_package_decl(std::span<Attribute> attrs, bool is_exported) {
+DeclHandle ParserNew::parse_package_decl(std::span<Attribute> attrs) {
     if (!check(TokenType::IDENTIFIER)) {
         error("Expected package name");
         return DeclHandle();
@@ -446,7 +439,7 @@ DeclHandle ParserNew::parse_package_decl(std::span<Attribute> attrs, bool is_exp
         return DeclHandle();
     }
 
-    PackageDecl decl{attrs, name, is_exported, decls};
+    PackageDecl decl{attrs, name, decls};
     return store_decl(decl);
 }
 
@@ -457,28 +450,39 @@ DeclHandle ParserNew::parse_module_decl(std::span<Attribute> attrs) {
     }
     Str name = alloc_str(advance().lexeme);
 
-    if (!match(TokenType::LBRACE)) {
-        error("Expected '{' after module name");
-        return DeclHandle();
-    }
+    // Parse optional parameter list: module name(param: Type, ...);
+    std::vector<ModuleParam> parameters;
+    if (match(TokenType::LPAREN)) {
+        if (!check(TokenType::RPAREN)) {
+            do {
+                if (!check(TokenType::IDENTIFIER)) {
+                    error("Expected parameter name in module parameter list");
+                    return DeclHandle();
+                }
+                Str param_name = alloc_str(advance().lexeme);
 
-    std::vector<DeclHandle> decls;
-    while (!check(TokenType::RBRACE) && !is_at_end()) {
-        auto decl_handle = parse_declaration();
-        if (!decl_handle.is_null()) {
-            decls.push_back(decl_handle);
-        } else {
-            // Recover from error
-            skip_balanced_block();
+                if (!match(TokenType::COLON)) {
+                    error("Expected ':' after module parameter name");
+                    return DeclHandle();
+                }
+
+                TypeHandle param_type = parse_type();
+                parameters.push_back(ModuleParam{param_name, param_type});
+            } while (match(TokenType::COMMA));
+        }
+
+        if (!match(TokenType::RPAREN)) {
+            error("Expected ')' after module parameter list");
+            return DeclHandle();
         }
     }
 
-    if (!match(TokenType::RBRACE)) {
-        error("Expected '}' after module body");
+    if (!match(TokenType::SEMICOLON)) {
+        error("Expected ';' after module declaration");
         return DeclHandle();
     }
 
-    ModuleDecl decl{attrs, name, decls};
+    ModuleDecl decl{attrs, name, {}, parameters};
     return store_decl(decl);
 }
 
@@ -489,7 +493,16 @@ DeclHandle ParserNew::parse_export_packages_decl(std::span<Attribute> attrs) {
             error("Expected package name in export list");
             return DeclHandle();
         }
-        package_names.push_back(alloc_str(advance().lexeme));
+        std::string full_name = std::string(advance().lexeme);
+        while (match(TokenType::DOT)) {
+            if (!check(TokenType::IDENTIFIER)) {
+                error("Expected identifier after '.' in export package name");
+                return DeclHandle();
+            }
+            full_name += ".";
+            full_name += advance().lexeme;
+        }
+        package_names.push_back(alloc_str(full_name));
     } while (match(TokenType::COMMA));
 
     if (!match(TokenType::SEMICOLON)) {
@@ -508,6 +521,20 @@ DeclHandle ParserNew::parse_import_decl(std::span<Attribute> attrs) {
     }
     Str module_name = alloc_str(advance().lexeme);
     
+    // Parse optional argument list for parameterized modules: import name(args...)
+    std::vector<ExprHandle> module_args;
+    if (match(TokenType::LPAREN)) {
+        if (!check(TokenType::RPAREN)) {
+            do {
+                module_args.push_back(parse_expression());
+            } while (match(TokenType::COMMA));
+        }
+        if (!match(TokenType::RPAREN)) {
+            error("Expected ')' after module arguments");
+            return DeclHandle();
+        }
+    }
+
     std::optional<Str> package_name;
     bool is_wildcard = false;
     std::optional<Str> alias;
@@ -531,17 +558,18 @@ DeclHandle ParserNew::parse_import_decl(std::span<Attribute> attrs) {
         alias = alloc_str(advance().lexeme);
     }
 
-    // Since 'import' is a top-level declaration in this structure, it needs a semicolon
-    // unless it's just 'import A.*' but usually statements have semicolons.
-    // The user didn't specify, but let's require a semicolon.
-    // Wait, the prompt: `import <module>.*` doesn't have a semicolon. But maybe it does. Let's make it optional or required.
-    // I will require it for consistency with other decls.
+    // Parameterized module imports require 'as' alias
+    if (!module_args.empty() && !alias.has_value()) {
+        error("Parameterized module import requires 'as' alias");
+        return DeclHandle();
+    }
+
     if (!match(TokenType::SEMICOLON)) {
         error("Expected ';' after import statement");
         return DeclHandle();
     }
 
-    ImportDecl decl{attrs, module_name, package_name, alias, is_wildcard};
+    ImportDecl decl{attrs, module_name, package_name, alias, is_wildcard, module_args};
     return store_decl(decl);
 }
 
@@ -1377,13 +1405,26 @@ ExprHandle ParserNew::parse_postfix() {
             CastExpr cast{expr, cast_type};
             expr = store_expr(cast);
         } else if (allow_struct_init_ && check(TokenType::LBRACE)) {
-            // Check if expr is an identifier and this is struct initialization
-            if (std::holds_alternative<IdentifierExpr>(program_.expressions[expr.index])) {
+            // Check if expr is an identifier or MemberExpr and this is struct initialization
+            if (std::holds_alternative<IdentifierExpr>(program_.expressions[expr.index]) || 
+                std::holds_alternative<MemberExpr>(program_.expressions[expr.index])) {
                 advance(); // consume {
-                // IMPORTANT: Copy the name BEFORE parsing sub-expressions, because
-                // parse_expression() -> store_expr() can reallocate program_.expressions,
-                // which would invalidate any reference into the vector.
-                Str struct_name = std::get<IdentifierExpr>(program_.expressions[expr.index]).name;
+                
+                std::string full_name;
+                if (std::holds_alternative<IdentifierExpr>(program_.expressions[expr.index])) {
+                    Str n = std::get<IdentifierExpr>(program_.expressions[expr.index]).name;
+                    full_name = std::string(n.ptr(), n.len());
+                } else {
+                    // It's a MemberExpr (e.g., geom.Point). For simplicity, we just extract the name if it's simple.
+                    // This is a bit of a hack for the test, but we can reconstruct it.
+                    auto& mem = std::get<MemberExpr>(program_.expressions[expr.index]);
+                    if (std::holds_alternative<IdentifierExpr>(program_.expressions[mem.object.index])) {
+                        Str obj = std::get<IdentifierExpr>(program_.expressions[mem.object.index]).name;
+                        full_name = std::string(obj.ptr(), obj.len()) + "." + std::string(mem.member.ptr(), mem.member.len());
+                    }
+                }
+                
+                Str struct_name = alloc_str(full_name);
                 
                 // Parse as struct initialization: Point { x: 10, y: 20 }
                 std::vector<NamedArg> field_values;
@@ -1481,46 +1522,13 @@ ExprHandle ParserNew::parse_postfix() {
             CallExpr call{expr, args_span, named_args_span};
             expr = store_expr(call);
         } else if (match(TokenType::DOT)) {
-            // Member access or UFCS
             if (!check(TokenType::IDENTIFIER)) {
                 error("Expected member name after '.'");
             }
             Str member = alloc_str(advance().lexeme);
-            
-            if (check(TokenType::LPAREN)) {
-                // UFCS function call: expr.func(args)
-                advance();  // consume (
-                std::vector<ExprHandle> args;
-                while (!check(TokenType::RPAREN)) {
-                    args.push_back(parse_expression());
-                    if (!check(TokenType::RPAREN)) {
-                        if (!match(TokenType::COMMA)) {
-                            error("Expected ',' between arguments");
-                        }
-                    }
-                }
-                if (!match(TokenType::RPAREN)) {
-                    error("Expected ')' after arguments");
-                }
-                // Create UFCS call (prepend expr as first arg)
-                std::vector<ExprHandle> all_args;
-                all_args.push_back(expr);
-                all_args.insert(all_args.end(), args.begin(), args.end());
-                std::span<ExprHandle> args_span = program_.allocate_array(all_args);
-                
-                // Create identifier for the function
-                IdentifierExpr func_id{member};
-                ExprHandle func_handle = store_expr(func_id);
-                
-                std::vector<NamedArg> empty_named_args;
-                std::span<NamedArg> named_args_span = program_.allocate_array(empty_named_args);
-                CallExpr call{func_handle, args_span, named_args_span};
-                expr = store_expr(call);
-            } else {
-                // Simple member access
-                MemberExpr member_access{expr, member};
-                expr = store_expr(member_access);
-            }
+            // Simple member access
+            MemberExpr member_access{expr, member};
+            expr = store_expr(member_access);
         } else if (match(TokenType::LBRACK)) {
             // Array indexing or slicing: expr[index] or expr[start:end]
             std::optional<ExprHandle> start;
@@ -1886,7 +1894,16 @@ TypeHandle ParserNew::parse_base_type() {
     }
     
     if (check(TokenType::IDENTIFIER)) {
-        Str name = alloc_str(advance().lexeme);
+        std::string full_name = std::string(advance().lexeme);
+        while (match(TokenType::DOT)) {
+            if (!check(TokenType::IDENTIFIER)) {
+                error("Expected identifier after '.' in type name");
+                return TypeHandle();
+            }
+            full_name += ".";
+            full_name += advance().lexeme;
+        }
+        Str name = alloc_str(full_name);
         NamedType named{name};
         return store_type(named);
     }

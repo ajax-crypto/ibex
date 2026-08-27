@@ -13,7 +13,7 @@ namespace ibex {
 // High-performance parser using arena allocator and discriminated unions
 class ParserNew {
 public:
-    explicit ParserNew(const std::vector<Token>& tokens, Arena& arena);
+    explicit ParserNew(const std::vector<Token>& tokens, Program& program);
 
     // Parse a complete program
     std::vector<DeclHandle> parse_program();
@@ -29,7 +29,7 @@ public:
 private:
     const std::vector<Token>& tokens_;
     size_t current_ = 0;
-    Program program_;
+    Program& program_;
     std::vector<std::string> errors_;
     bool allow_struct_init_ = true;
 
@@ -87,7 +87,7 @@ private:
     DeclHandle parse_declaration();
     DeclHandle parse_function_decl(std::span<Attribute> attrs = {});
     DeclHandle parse_struct_decl(std::span<Attribute> attrs = {});
-    DeclHandle parse_package_decl(std::span<Attribute> attrs = {}, bool is_exported = false);
+    DeclHandle parse_package_decl(std::span<Attribute> attrs = {});
     DeclHandle parse_module_decl(std::span<Attribute> attrs = {});
     DeclHandle parse_import_decl(std::span<Attribute> attrs = {});
     DeclHandle parse_export_packages_decl(std::span<Attribute> attrs = {});

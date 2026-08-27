@@ -414,14 +414,20 @@ struct AllocDecl {
 struct PackageDecl {
     std::span<Attribute> attributes;
     Str name;
-    bool is_exported;
     std::vector<DeclHandle> declarations;
+};
+
+// Parameter for a parameterized module: module name(param: Type, ...);
+struct ModuleParam {
+    Str name;
+    TypeHandle type;    // Must be a primitive type (bool, i32, etc.)
 };
 
 struct ModuleDecl {
     std::span<Attribute> attributes;
     Str name;
     std::vector<DeclHandle> declarations;
+    std::vector<ModuleParam> parameters;  // Empty for non-parameterized modules
 };
 
 struct ImportDecl {
@@ -430,6 +436,7 @@ struct ImportDecl {
     std::optional<Str> package_name;
     std::optional<Str> alias;
     bool is_wildcard;
+    std::vector<ExprHandle> module_args;  // Compile-time constant arguments for parameterized imports
 };
 
 struct ExportPackagesDecl {

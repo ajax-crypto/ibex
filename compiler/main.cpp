@@ -59,7 +59,8 @@ int main(int argc, char* argv[]) {
 
     // Parsing
     ibex::Arena ast_arena;
-    ibex::ParserNew parser(tokens, ast_arena);
+    ibex::Program program(ast_arena);
+    ibex::ParserNew parser(tokens, program);
     auto ast = parser.parse_program();
 
     if (!parser.get_errors().empty()) {

@@ -136,6 +136,10 @@ private:
     
     // Global module registry: map module_name -> exported packages
     std::unordered_map<std::string, std::vector<std::string>> modules_;
+    std::string current_package_;
+    
+    // Imports for the current file
+    std::vector<ImportDecl> current_imports_;
 
     TypeHandle current_expr_type_; // For returning type from Expr visitor
 };

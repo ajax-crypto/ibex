@@ -19,6 +19,9 @@
   - [3.7 Initialization and Function Calls](#37-initialization-and-function-calls)
   - [3.8 Inheritance and Composition](#38-inheritance-and-composition)
   - [3.9 Uniform Function Call Syntax (UFCS)](#39-uniform-function-call-syntax-ufcs)
+  - [3.10 Circular Dependencies](#310-circular-dependencies)
+  - [3.11 Parameterized Modules](#311-parameterized-modules)
+  - [3.12 Compiler Flags & Environment Variables](#312-compiler-flags--environment-variables)
 
 ---
 
@@ -97,9 +100,11 @@ FlagMember ::= Identifier [ "=" Expr ]
 
 VarDecl ::= ["const" | "var"] Identifier [ ":" Type ] [ ( "=" | ":=" ) Expr ] ";"
 PackageDecl ::= "package" Identifier "{" { Decl } "}"
-ModuleDecl ::= "module" Identifier "{" { ExportDecl | ConstDecl | StructDecl | EnumDecl | FlagDecl | TypeAliasDecl } "}"
+ModuleDecl ::= "module" Identifier [ "(" ModuleParamList ")" ] ";"
+ModuleParamList ::= ModuleParam { "," ModuleParam }
+ModuleParam ::= Identifier ":" PrimitiveType
 ExportDecl ::= "export" "package" Identifier { "," Identifier } ";"
-ImportDecl ::= "import" Identifier "." ( Identifier "as" Identifier | "*" ) ";"
+ImportDecl ::= "import" Identifier [ "(" ExprList ")" ] "." ( Identifier | "*" ) [ "as" Identifier ] ";"
 
 TypeAliasDecl ::= [AttributeList] "using" Identifier "=" Type ";"
 UsingDecl ::= [AttributeList] "using" Identifier ":=" "#" Identifier "(" [BindingArgList] ")" ";"
@@ -183,10 +188,14 @@ Applied via `[[name(args)]]`.
 - `[[discard]]`: Discards the return value implicitly.
 
 ### 3.6 Packages & Modules
-- **Packages** are isolated namespaces. Members inside cannot be externally accessed unless exported through a Module.
-- **Modules** distribute Packages and can hold their own `const` fields and declarations.
-- **Access via Wildcard** (`import mod.*`) exposes packages under their native name (e.g., `mod.pkg.symbol`).
-- **Access via Alias** (`import mod.pkg as p`) binds the package namespace strictly to `p` (e.g., `p.symbol`).
+- **Packages** are block-level declarations (`package name { ... }`) that isolate namespaces. A single file can contain multiple package blocks with different names. If multiple package blocks share the same name within the same file, they are automatically merged into a single package scope (a warning is emitted). Packages can also be split across multiple files; they will be consolidated during compilation (a warning is emitted). Identical symbol names with the same signature inside a merged package result in a hard compilation error (name collision).
+- **Modules** are single-file definitions (`.module.ibex`) that distribute Packages and can hold their own `const` fields, `using` aliases, and `[[attributes]]` like `[[deprecated]]`. Modules cannot contain logic or struct definitions. 
+- **Directory Layout**: Each module and its associated package `.ibex` files must reside in their own subdirectory. The compiler assigns all non-module `.ibex` files in a module's directory to that module for dependency analysis. Consumer files that import the module must be placed outside the module's directory to avoid false circular dependency errors.
+- **Exporting Packages**: A module explicitly exports a package using `export package name;`.
+- **Importing**:
+  - `import mod.pkg;` imports a specific package. It is accessed via `mod.pkg.symbol` or simply `pkg.symbol`.
+  - `import mod.*;` imports all exported packages from a module.
+  - `import mod.pkg as p;` binds the package namespace strictly to `p` (e.g., `p.symbol`).
 
 ### 3.7 Initialization and Function Calls
 - **Named Arguments**: Function calls support explicit parameter binding via named arguments using the `=` operator (e.g., `func(name = val)`). This allows parameters to be passed out-of-order and provides self-documenting call sites.
@@ -199,3 +208,22 @@ Applied via `[[name(args)]]`.
 ### 3.9 Uniform Function Call Syntax (UFCS)
 - **Syntactic Rewrite**: The member access call expression `obj.func(args...)` is strictly syntactically equivalent and intrinsically rewritten by the parser to `func(obj, args...)`. 
 - **Object Resolution**: Because of UFCS, Ibex does not have traditional "methods" bound inside structs. Any standalone function can be called via method-syntax on an object so long as that function explicitly takes the object type as its first parameter.
+
+### 3.10 Circular Dependencies
+- The compiler detects circular module dependencies during the module scanning phase, before parsing begins.
+- **Self-circular**: A module whose packages import from itself is detected and rejected.
+- **Transitive cycles**: If module A depends on B, and B depends on A (directly or transitively), the compiler emits: `"Circular dependency detected: A -> B -> A"`.
+
+### 3.11 Parameterized Modules
+- Modules may declare typed parameters: `module config(debug: bool, max_size: i32);`
+- All parameter types must be primitive types (`bool`, `i32`, `i64`, `f32`, `f64`, `u8`, `u16`, `u32`, `u64`, `text`).
+- All arguments at the import site must be compile-time literals or constants. No runtime values.
+- Parameterized module imports **must** use `as` alias: `import config(true, 256).* as cfg;` (error without alias).
+- Parameters can control conditional `export package` statements inside `.module.ibex` files.
+- Multiple imports of the same parameterized module with different arguments create separate module instances.
+
+### 3.12 Compiler Flags & Environment Variables
+- `--import <path>`: Add a non-recursive module search path.
+- `--import-recursive <path>`: Add a recursive module search path.
+- `IBEX_MODULE_PATH`: Environment variable with semicolon-separated module search paths.
+- `IBEX_MODULE_RECURSE=1`: Environment variable to enable recursive search for paths from `IBEX_MODULE_PATH`.

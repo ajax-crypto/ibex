@@ -113,3 +113,102 @@ using WeakAlias = i32;            // Interchangeable with i32
 | References | `&T` (never null) | `T&` |
 | Aliasing | `using T = X` with `[[strong]]` support | `using T = X`, requires wrapper structs for strong types |
 | Metaprogramming| Attributes `[[attr]]`, Function Bindings | Templates, Macros, `constexpr` |
+
+
+## 5. Modules and Packages
+
+Ibex organizes code into packages and modules. Packages are defined as blocks, allowing you to scope declarations. A single file can contain multiple packages. If a package with the same name is declared multiple times in the same file or across different files, the compiler merges them into one namespace (emitting a warning to consolidate them).
+
+```ibex
+// math.ibex
+package geom {
+    struct Point { x: f32; y: f32; }
+}
+
+package calc {
+    add: (a: i32, b: i32) -> i32 { return a + b; }
+}
+```
+
+Modules are defined in a separate `.module.ibex` file to dictate how packages are exported.
+
+```ibex
+// math.module.ibex
+module math;
+
+export package geom, calc;
+```
+
+You can then import them elsewhere:
+```ibex
+// main.ibex
+package main {
+    import math.geom;
+    import math.calc;
+
+    main: () -> void {
+        p: geom.Point = geom.Point {x: 0, y: 0};
+        res: i32 = calc.add(1, 2);
+    }
+}
+```
+
+### Directory Layout
+
+Each module must reside in its own subdirectory alongside its package `.ibex` files. The compiler treats all `.ibex` files in a module's directory as belonging to that module. Files that *consume* the module (i.e., import it) must be placed **outside** the module's directory.
+
+```
+project/
+├── math/                    # Module directory
+│   ├── math.module.ibex     # module math; export package geom, calc;
+│   ├── geom.ibex            # package geom { ... }
+│   └── calc.ibex            # package calc { ... }
+├── main.ibex                # import math.geom; import math.calc;
+└── ...
+```
+
+
+## 6. Circular Dependencies
+
+The compiler detects circular module dependencies and emits clear error messages:
+
+```
+Circular dependency detected: a -> b -> a
+```
+
+This occurs when module `a`'s packages import from module `b`, and module `b`'s packages import from module `a`.
+
+## 7. Parameterized Modules
+
+Modules can accept compile-time parameters:
+
+```ibex
+// config.module.ibex
+module config(debug: bool, max_size: i32);
+
+export package utils;
+// Conditional exports based on parameters (planned)
+// if debug { export package debug_tools; }
+
+const MAX_SIZE: i32 = max_size;
+```
+
+Importing a parameterized module requires providing arguments and an alias:
+
+```ibex
+package app {
+    import config(true, 256).* as cfg;
+    // Now use cfg.utils.symbol or cfg.MAX_SIZE
+}
+```
+
+All arguments must be compile-time constants (literals or `const` variables). Omitting the `as` alias on a parameterized import is a compilation error.
+
+## 8. Compiler Flags
+
+| Flag | Description |
+|------|-------------|
+| `--import <path>` | Add a module search directory (non-recursive) |
+| `--import-recursive <path>` | Add a module search directory (recursive) |
+| `IBEX_MODULE_PATH` | Environment variable: semicolon-separated search paths |
+| `IBEX_MODULE_RECURSE=1` | Environment variable: enable recursive search for env paths |

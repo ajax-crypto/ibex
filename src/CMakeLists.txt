@@ -4,6 +4,8 @@ add_library(ibex_compiler
     type_registry.cpp
     node_registry.cpp
     semantic_analyzer.cpp
+    module_scanner.cpp
+    const_eval.cpp
 )
 
 # Link against standard library and yyjson
