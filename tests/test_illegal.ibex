@@ -1,0 +1,40 @@
+// Negative tests. This file must fail lexing, parsing, or semantic analysis.
+package illegal_tests {
+    // Integer literals outside their declared ranges.
+    overflow_literals: () -> void {
+        too_large_u8: u8 = 256u8;
+        too_large_i8: i8 = 128i8;
+        too_small_i8: i8 = -129i8;
+        too_large_u16: u16 = 65536u16;
+        too_large_u32: u32 = 4294967296u32;
+        negative_unsigned: u64 = -1u64;
+    }
+
+    // Floating-point properties are not available on integer types.
+    invalid_integer_properties: () -> void {
+        bad_infinity := i32.infinity;
+        bad_nan := u8.nan;
+        bad_epsilon := i64.epsilon;
+        bad_signaling_nan := u32.signaling_nan;
+    }
+
+    // A local variable cannot be referenced after its scope ends.
+    invalid_lifetime: () -> void {
+        {
+            scoped_value := 10;
+        }
+        escaped_value := scoped_value;
+    }
+
+    // Unknown names and incompatible declared types are invalid.
+    invalid_names_and_types: () -> void {
+        missing_value := does_not_exist;
+        wrong_type: i32 = true;
+    }
+}
+
+// Missing 'in' is a syntax error in a for statement.
+invalid_for_syntax: () -> void {
+    for item [] {
+    }
+}
