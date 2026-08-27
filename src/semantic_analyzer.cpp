@@ -79,6 +79,13 @@ void SemanticAnalyzer::push_scope() {
 
 void SemanticAnalyzer::pop_scope() {
     if (!scopes_.empty()) {
+        for (const auto& sym : scopes_.back().symbols) {
+            if (!sym.is_used && !sym.allow_unused && !sym.is_namespace) {
+                // If it is a global scope (maybe scope.size() == 1?), wait, do we warn for unused globals?
+                // For now, let's just warn for everything unused.
+                report_warning("Unused variable: '" + std::string(sym.name.ptr(), sym.name.len()) + "'");
+            }
+        }
         scopes_.pop_back();
     }
 }
@@ -92,14 +99,22 @@ void SemanticAnalyzer::add_symbol(Str name, TypeHandle type, DeclHandle decl_han
             return;
         }
     }
-    scopes_.back().symbols.push_back({name, type, decl_handle, is_const});
+    scopes_.back().symbols.push_back({
+        .name = name, 
+        .type = type, 
+        .decl_handle = decl_handle, 
+        .is_const = is_const, 
+        .is_used = false, 
+        .allow_unused = allow_unused
+    });
 }
 
-std::optional<Symbol> SemanticAnalyzer::find_symbol(Str name) const {
+std::optional<Symbol> SemanticAnalyzer::find_symbol(Str name) {
     std::cout << "find_symbol: " << std::string(name.ptr(), name.len()) << "\n";
     for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
-        for (const auto& sym : it->symbols) {
+        for (auto& sym : it->symbols) {
             if (sym.name == name) {
+                sym.is_used = true;
                 return sym;
             }
         }
@@ -119,7 +134,7 @@ void SemanticAnalyzer::validate_attributes(std::span<Attribute> attrs) {
     for (const auto& attr : attrs) {
         std::string_view name(attr.name.ptr(), attr.name.len());
         if (name == "strong" || name == "unused" || name == "deprecated" || 
-            name == "platform" || name == "discard" || name == "offset") {
+            name == "platform" || name == "discard" || name == "offset" || name == "nodiscard") {
             
             if (name == "deprecated" && attr.args.size() != 1) {
                 report_warning("Attribute 'deprecated' expects exactly 1 argument");
@@ -132,6 +147,100 @@ void SemanticAnalyzer::validate_attributes(std::span<Attribute> attrs) {
             }
         } else {
             report_warning("Unknown attribute: '" + std::string(name) + "'");
+        }
+    }
+}
+
+bool SemanticAnalyzer::has_attribute(std::span<Attribute> attrs, std::string_view name) const {
+    for (const auto& attr : attrs) {
+        if (std::string_view(attr.name.ptr(), attr.name.len()) == name) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void SemanticAnalyzer::check_deprecated(const Symbol& sym) {
+    if (sym.decl_handle.is_null()) return;
+    auto& decl = program_.declarations[sym.decl_handle.index];
+    auto attrs = std::visit([](const auto& node) -> std::span<Attribute> {
+        if constexpr (requires { node.attributes; }) {
+            return node.attributes;
+        } else {
+            return {};
+        }
+    }, decl);
+    
+    for (const auto& attr : attrs) {
+        if (std::string_view(attr.name.ptr(), attr.name.len()) == "deprecated") {
+            std::string reason = "";
+            if (attr.args.size() == 1) {
+                if (auto* lit = std::get_if<LiteralExpr>(&program_.expressions[attr.args[0].index])) {
+                    if (lit->kind == LiteralExpr::Kind::STRING) {
+                        reason = std::string(lit->value.string_value.value.ptr(), lit->value.string_value.value.len());
+                    }
+                }
+            }
+            std::string msg = "Call to deprecated function '" + std::string(sym.name.ptr(), sym.name.len()) + "'";
+            if (!reason.empty()) {
+                msg = "Call to deprecated function '" + std::string(sym.name.ptr(), sym.name.len()) + "' (Reason: " + reason + ")";
+            }
+            report_warning(msg);
+        }
+    }
+}
+
+void SemanticAnalyzer::check_discard(ExprHandle expr_handle) {
+    auto& expr = program_.expressions[expr_handle.index];
+    if (auto* call = std::get_if<CallExpr>(&expr)) {
+        if (auto* ident = std::get_if<IdentifierExpr>(&program_.expressions[call->function.index])) {
+            if (auto sym_opt = find_symbol(ident->name)) {
+                auto& sym = *sym_opt;
+                if (!sym.decl_handle.is_null()) {
+                    auto& decl = program_.declarations[sym.decl_handle.index];
+                    if (auto* func = std::get_if<FunctionDecl>(&decl)) {
+                        bool func_discard = has_attribute(func->attributes, "discard");
+                        
+                        bool type_nodiscard = false;
+                        if (!func->return_type.is_null()) {
+                            auto& ret_type = program_.types[func->return_type.index];
+                            if (auto* named = std::get_if<NamedType>(&ret_type)) {
+                                if (auto t_sym_opt = find_symbol(named->name)) {
+                                    auto& t_sym = *t_sym_opt;
+                                    if (!t_sym.decl_handle.is_null()) {
+                                        auto& t_decl = program_.declarations[t_sym.decl_handle.index];
+                                        auto t_attrs = std::visit([](const auto& node) -> std::span<Attribute> {
+                                            if constexpr (requires { node.attributes; }) return node.attributes;
+                                            else return {};
+                                        }, t_decl);
+                                        type_nodiscard = has_attribute(t_attrs, "nodiscard");
+                                    }
+                                }
+                            }
+                        }
+                        
+                        if (type_nodiscard) {
+                            report_error("Discarding return value of function '" + std::string(ident->name.ptr(), ident->name.len()) + "' which returns a [[nodiscard]] type");
+                        } else if (!func_discard) {
+                            bool is_void = false;
+                            if (!func->return_type.is_null()) {
+                                auto& ret_type = program_.types[func->return_type.index];
+                                if (auto* named = std::get_if<NamedType>(&ret_type)) {
+                                    if (std::string_view(named->name.ptr(), named->name.len()) == "void") {
+                                        is_void = true;
+                                    }
+                                }
+                            } else {
+                                is_void = true; // no return type implies void
+                            }
+                            
+                            if (!is_void) {
+                                report_warning("Discarding return value of function '" + std::string(ident->name.ptr(), ident->name.len()) + "' (missing [[discard]] attribute)");
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -210,7 +319,9 @@ void SemanticAnalyzer::visit(const UnaryExpr& expr) {
 void SemanticAnalyzer::visit(const LiteralExpr& expr) {}
 
 void SemanticAnalyzer::visit(const IdentifierExpr& expr) {
-    if (!find_symbol(expr.name)) {
+    if (auto sym = find_symbol(expr.name)) {
+        check_deprecated(*sym);
+    } else {
         report_error("Undefined symbol: '" + std::string(expr.name.ptr(), expr.name.len()) + "'");
     }
 }
@@ -476,7 +587,10 @@ void SemanticAnalyzer::visit(const BreakStmt& stmt) {}
 void SemanticAnalyzer::visit(const ContinueStmt& stmt) {}
 
 void SemanticAnalyzer::visit(const ExprStmt& stmt) {
-    if (!stmt.expression.is_null()) visit_expr(program_.expressions[stmt.expression.index], this);
+    if (!stmt.expression.is_null()) {
+        visit_expr(program_.expressions[stmt.expression.index], this);
+        check_discard(stmt.expression);
+    }
 }
 
 void SemanticAnalyzer::visit(const VarDeclStmt& stmt) {
@@ -485,7 +599,7 @@ void SemanticAnalyzer::visit(const VarDeclStmt& stmt) {
     if (stmt.initializer && !stmt.initializer.value().is_null()) {
         visit_expr(program_.expressions[stmt.initializer.value().index], this);
     }
-    add_symbol(stmt.name, stmt.type.value_or(TypeHandle{0}), DeclHandle{}, stmt.is_const);
+    add_symbol(stmt.name, stmt.type.value_or(TypeHandle{0}), DeclHandle{}, stmt.is_const, has_attribute(stmt.attributes, "unused"));
 }
 
 void SemanticAnalyzer::visit(const ConstBlockStmt& stmt) {
@@ -632,7 +746,7 @@ void SemanticAnalyzer::visit(const FunctionDecl& decl) {
     std::cout << "Visiting FunctionDecl: " << std::string(decl.name.ptr(), decl.name.len()) << "\n";
     push_scope();
     for (const auto& param : decl.parameters) {
-        add_symbol(param.name, param.type, DeclHandle{}, param.is_const);
+        add_symbol(param.name, param.type, DeclHandle{}, param.is_const, has_attribute(param.attributes, "unused"));
     }
     if (!decl.body.is_null()) visit_stmt(program_.statements[decl.body.index], this);
     pop_scope();
@@ -645,7 +759,7 @@ void SemanticAnalyzer::visit(const VariableDecl& decl) {
     if (decl.initializer && !decl.initializer.value().is_null()) {
         visit_expr(program_.expressions[decl.initializer.value().index], this);
     }
-    add_symbol(decl.name, decl.type.value_or(TypeHandle{0}), DeclHandle{}, decl.is_const);
+    add_symbol(decl.name, decl.type.value_or(TypeHandle{0}), DeclHandle{}, decl.is_const, has_attribute(decl.attributes, "unused"));
 }
 
 void SemanticAnalyzer::flatten_struct_bases(StructDecl& decl, std::vector<StructMember>& out_members, uint32_t& current_offset) {

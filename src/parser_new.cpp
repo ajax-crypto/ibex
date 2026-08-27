@@ -1176,6 +1176,7 @@ StmtHandle ParserNew::parse_var_decl_statement(bool is_const, bool is_static, st
     // Retrieve the parsed VariableDecl from the program
     if (auto* var_decl = std::get_if<VariableDecl>(&program_.declarations[decl_handle.index])) {
         VarDeclStmt stmt{
+            .attributes = var_decl->attributes,
             .name = var_decl->name,
             .type = var_decl->type,
             .initializer = var_decl->initializer,

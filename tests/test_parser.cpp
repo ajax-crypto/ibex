@@ -84,17 +84,17 @@ int main(int argc, char** argv) {
         ibex::SemanticAnalyzer semantic(parser.program(), type_registry);
         semantic.analyze();
         
+        // Print any warnings
+        for (const auto& warn : semantic.get_warnings()) {
+            std::cerr << "Warning: " << warn << "\n";
+        }
+        
         if (semantic.has_errors()) {
             std::cerr << "Semantic analysis failed:\n";
             for (const auto& err : semantic.get_errors()) {
                 std::cerr << err << "\n";
             }
             return 1;
-        }
-        
-        // Print any warnings
-        for (const auto& warn : semantic.get_warnings()) {
-            std::cerr << "Warning: " << warn << "\n";
         }
         
         std::cerr << "Syntax and semantics test passed successfully!\n";

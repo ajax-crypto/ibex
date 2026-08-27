@@ -107,10 +107,13 @@ private:
     void push_scope();
     void pop_scope();
     void add_symbol(Str name, TypeHandle type, DeclHandle decl_handle = DeclHandle{}, bool is_const = false, bool allow_unused = false);
-    std::optional<Symbol> find_symbol(Str name) const;
+    std::optional<Symbol> find_symbol(Str name);
     void report_error(const std::string& msg);
 
     // Helpers
+    bool has_attribute(std::span<Attribute> attrs, std::string_view name) const;
+    void check_deprecated(const Symbol& sym);
+    void check_discard(ExprHandle expr_handle);
     TypeHandle resolve_type(const Type& type_variant);
     
     // Struct inheritance helper
