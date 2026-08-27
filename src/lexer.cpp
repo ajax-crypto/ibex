@@ -92,9 +92,35 @@ Token Lexer::scan_string() {
     return make_literal_token(TokenType::STRING_LITERAL);
 }
 
+Token Lexer::scan_raw_string() {
+    advance(); advance(); advance(); // consume '''
+    
+    while (!is_at_end()) {
+        if (current_char() == '\'' && peek_char() == '\'' && peek_char(2) == '\'') {
+            break;
+        }
+        advance();
+    }
+
+    if (is_at_end()) {
+        errors_.push_back("Unterminated raw string literal");
+        return make_token(TokenType::UNKNOWN);
+    }
+
+    advance(); advance(); advance(); // consume closing '''
+    return make_literal_token(TokenType::RAW_STRING_LITERAL);
+}
+
 Token Lexer::scan_identifier() {
     while (is_alphanumeric(current_char())) {
         advance();
+    }
+
+    if (current_char() == '"') {
+        return scan_string();
+    }
+    if (current_char() == '\'' && peek_char() == '\'' && peek_char(2) == '\'') {
+        return scan_raw_string();
     }
 
     std::string lexeme(source_.substr(start_, current_ - start_));
@@ -105,7 +131,6 @@ Token Lexer::scan_identifier() {
 TokenType Lexer::keyword_type(std::string_view lexeme) {
     static const std::unordered_map<std::string_view, TokenType> keywords = {
         {"struct", TokenType::STRUCT},
-        {"class", TokenType::CLASS},
         {"enum", TokenType::ENUM},
         {"flag", TokenType::FLAG},
         {"using", TokenType::USING},
@@ -117,12 +142,15 @@ TokenType Lexer::keyword_type(std::string_view lexeme) {
         {"while", TokenType::WHILE},
         {"break", TokenType::BREAK},
         {"continue", TokenType::CONTINUE},
-        {"private", TokenType::PRIVATE},
-        {"public", TokenType::PUBLIC},
-        {"protected", TokenType::PROTECTED},
         {"static", TokenType::STATIC},
         {"const", TokenType::CONST_KW},
         {"as", TokenType::AS},
+        {"package", TokenType::PACKAGE},
+        {"export", TokenType::EXPORT},
+        {"module", TokenType::MODULE},
+        {"import", TokenType::IMPORT},
+        {"typeof", TokenType::TYPEOF},
+        {"sizeof", TokenType::SIZEOF},
         {"true", TokenType::TRUE_LITERAL},
         {"false", TokenType::FALSE_LITERAL},
         {"null", TokenType::NULL_LITERAL},
@@ -138,6 +166,7 @@ TokenType Lexer::keyword_type(std::string_view lexeme) {
         {"f32", TokenType::F32},
         {"f64", TokenType::F64},
         {"bool", TokenType::BOOL},
+        {"text", TokenType::TEXT},
         {"or", TokenType::PIPE},
         {"and", TokenType::AMPERSAND},
         {"xor", TokenType::CARET},
@@ -178,6 +207,10 @@ Token Lexer::next_token() {
 
     if (c == '"') {
         return scan_string();
+    }
+    
+    if (c == '\'' && peek_char() == '\'' && peek_char(2) == '\'') {
+        return scan_raw_string();
     }
 
     if (is_alpha(c)) {

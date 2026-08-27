@@ -42,6 +42,13 @@ struct DeclTag {};
 using DeclHandle = Handle<DeclTag>;
 
 // ============================================================================
+
+struct Attribute {
+    Str name;
+    std::span<ExprHandle> args;
+};
+
+// ============================================================================
 // TYPES - Discriminated union for type expressions
 // ============================================================================
 
@@ -78,8 +85,12 @@ struct NamedType {
     Str name;
 };
 
+struct TypeofType {
+    ExprHandle expr;
+};
+
 // Type discriminated union
-using Type = std::variant<PrimitiveType, PointerType, ReferenceType, ArrayType, SliceType, NamedType>;
+using Type = std::variant<PrimitiveType, PointerType, ReferenceType, ArrayType, SliceType, NamedType, TypeofType>;
 
 // ============================================================================
 // EXPRESSIONS - Discriminated union for expressions
@@ -108,7 +119,10 @@ struct LiteralExpr {
     union {
         int64_t int_value;
         double float_value;
-        Str string_value;
+        struct {
+            Str value;
+            Str prefix;
+        } string_value;
         bool bool_value;
     } value;
 };
@@ -200,6 +214,12 @@ struct FreeExpr {
     ExprHandle pointer;
 };
 
+// Sizeof expression
+struct SizeofExpr {
+    std::optional<TypeHandle> type_operand;
+    std::optional<ExprHandle> expr_operand;
+};
+
 // Expression discriminated union
 using Expr = std::variant<
     BinaryExpr,
@@ -217,7 +237,8 @@ using Expr = std::variant<
     ArrayLiteralExpr,
     StructInitExpr,
     AllocExpr,
-    FreeExpr
+    FreeExpr,
+    SizeofExpr
 >;
 
 // ============================================================================
@@ -225,6 +246,7 @@ using Expr = std::variant<
 // ============================================================================
 
 struct BlockStmt {
+    std::span<Attribute> attributes;
     std::span<StmtHandle> statements;
 };
 
@@ -233,18 +255,21 @@ struct ReturnStmt {
 };
 
 struct IfStmt {
-    ExprHandle condition;
+    std::span<Attribute> attributes;
+    std::optional<ExprHandle> condition;  // Made optional for compile-time if
     StmtHandle then_branch;
     std::optional<StmtHandle> else_branch;
 };
 
 struct WhileStmt {
+    std::span<Attribute> attributes;
     ExprHandle condition;
     StmtHandle body;
     std::optional<StmtHandle> else_branch;  // Executed if condition is false on first check
 };
 
 struct ForStmt {
+    std::span<Attribute> attributes;
     Str variable;         // Loop variable name
     ExprHandle range;     // Range expression (can be a literal range or call)
     StmtHandle body;
@@ -260,10 +285,12 @@ struct ExprStmt {
 };
 
 struct VarDeclStmt {
+    std::span<Attribute> attributes;
     Str name;
     std::optional<TypeHandle> type;  // None means type deduction
     std::optional<ExprHandle> initializer;
     bool is_const;
+    bool is_static;
 };
 
 struct ConstBlockStmt {
@@ -295,6 +322,7 @@ using Stmt = std::variant<
 // ============================================================================
 
 struct FunctionParameter {
+    std::span<Attribute> attributes;
     Str name;
     TypeHandle type;
     std::optional<ExprHandle> default_value;
@@ -302,21 +330,24 @@ struct FunctionParameter {
 };
 
 struct FunctionDecl {
+    std::span<Attribute> attributes;
     Str name;
     std::span<FunctionParameter> parameters;
     TypeHandle return_type;
     StmtHandle body;
-    std::span<Str> attributes;  // [[allocates]], [[deallocates]], etc.
 };
 
 struct VariableDecl {
+    std::span<Attribute> attributes;
     Str name;
     std::optional<TypeHandle> type;  // None means type deduction (using :=)
     std::optional<ExprHandle> initializer;
     bool is_const;                    // const keyword (immutable)
+    bool is_static;                   // static keyword
 };
 
 struct StructMember {
+    std::span<Attribute> attributes;
     Str name;
     TypeHandle type;
     std::optional<ExprHandle> default_value;  // NSDMI
@@ -324,29 +355,20 @@ struct StructMember {
 };
 
 struct StructDecl {
+    std::span<Attribute> attributes;
     Str name;
     std::span<Str> bases;               // Base struct names for inheritance (can be multiple)
     std::span<StructMember> members;
 };
 
-struct ClassMember {
-    Str name;
-    TypeHandle type;
-    bool is_public;
-    std::optional<ExprHandle> default_value;
-};
-
-struct ClassDecl {
-    Str name;
-    std::span<ClassMember> members;
-};
-
 struct EnumMember {
+    std::span<Attribute> attributes;
     Str name;
     std::optional<ExprHandle> value;
 };
 
 struct EnumDecl {
+    std::span<Attribute> attributes;
     Str name;
     TypeHandle base_type;           // Underlying primitive type (u8, i32, bool, etc.)
     std::optional<Str> extends;     // Optional base enum to extend
@@ -356,6 +378,7 @@ struct EnumDecl {
 // Flag declaration - bitset enums with automatic power-of-two values
 // flag S : i32 { first, second, third } => first=1, second=2, third=4
 struct FlagDecl {
+    std::span<Attribute> attributes;
     Str name;
     TypeHandle base_type;           // Underlying primitive type (u8, i32, i64, etc.)
     std::optional<Str> extends;     // Optional base flag to extend
@@ -365,6 +388,7 @@ struct FlagDecl {
 // Function binding declaration - compile-time function partial application
 // using sum1 := #sum(, 3);  creates a new function with second param bound to 3
 struct FunctionBindingDecl {
+    std::span<Attribute> attributes;
     Str name;                          // New function name
     Str target_function;               // Function name to bind to (without type info)
     std::span<std::optional<ExprHandle>> bound_args;  // Bound arguments (None for parameters left open)
@@ -382,16 +406,53 @@ struct AllocDecl {
     std::optional<ExprHandle> size;   // Required for vector
 };
 
+struct PackageDecl {
+    std::span<Attribute> attributes;
+    Str name;
+    bool is_exported;
+    std::vector<DeclHandle> declarations;
+};
+
+struct ModuleDecl {
+    std::span<Attribute> attributes;
+    Str name;
+    std::vector<DeclHandle> declarations;
+};
+
+struct ImportDecl {
+    std::span<Attribute> attributes;
+    Str module_name;
+    std::optional<Str> package_name;
+    std::optional<Str> alias;
+    bool is_wildcard;
+};
+
+struct ExportPackagesDecl {
+    std::span<Attribute> attributes;
+    std::vector<Str> package_names;
+};
+
+struct TypeAliasDecl {
+    std::span<Attribute> attributes;
+    Str name;
+    TypeHandle target_type;
+    bool is_strong;
+};
+
 // Declaration discriminated union
 using Decl = std::variant<
     FunctionDecl,
     VariableDecl,
     StructDecl,
-    ClassDecl,
     EnumDecl,
     FlagDecl,
     FunctionBindingDecl,
-    AllocDecl
+    AllocDecl,
+    PackageDecl,
+    ModuleDecl,
+    ImportDecl,
+    ExportPackagesDecl,
+    TypeAliasDecl
 >;
 
 // ============================================================================
@@ -411,6 +472,9 @@ public:
     std::vector<Stmt> statements;
     std::vector<Expr> expressions;
     std::vector<Type> types;
+    
+    // Top-level declarations for semantic analysis
+    std::vector<DeclHandle> top_level_declarations;
 
     // Helper to allocate arrays with span return
     template<typename T>

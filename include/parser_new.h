@@ -79,31 +79,38 @@ private:
         program_.types.push_back(std::move(type));
         return handle;
     }
-
     // ========================================================================
     // DECLARATIONS
     // ========================================================================
 
     DeclHandle parse_declaration();
-    DeclHandle parse_function_decl();
-    DeclHandle parse_struct_decl();
-    DeclHandle parse_class_decl();
-    DeclHandle parse_enum_decl();
-    DeclHandle parse_flag_decl();
-    DeclHandle parse_function_binding_decl();
-    DeclHandle parse_variable_decl(bool is_const = false);
+    DeclHandle parse_function_decl(std::span<Attribute> attrs = {});
+    DeclHandle parse_struct_decl(std::span<Attribute> attrs = {});
+    DeclHandle parse_package_decl(std::span<Attribute> attrs = {}, bool is_exported = false);
+    DeclHandle parse_module_decl(std::span<Attribute> attrs = {});
+    DeclHandle parse_import_decl(std::span<Attribute> attrs = {});
+    DeclHandle parse_export_packages_decl(std::span<Attribute> attrs = {});
+
+    DeclHandle parse_enum_decl(std::span<Attribute> attrs = {});
+    DeclHandle parse_flag_decl(std::span<Attribute> attrs = {});
+    DeclHandle parse_using_decl(std::span<Attribute> attrs = {});
+    DeclHandle parse_variable_decl(bool is_const = false, bool is_static = false, std::span<Attribute> attrs = {});
+
+    std::span<Attribute> parse_attributes();
+    bool evaluate_platform_attribute(std::span<Attribute> attrs);
+    void skip_balanced_block();
 
     // ========================================================================
     // STATEMENTS
     // ========================================================================
 
-    StmtHandle parse_statement();
-    StmtHandle parse_block_statement();
+    StmtHandle parse_statement(std::span<Attribute> attrs = {});
+    StmtHandle parse_block_statement(std::span<Attribute> attrs = {});
     StmtHandle parse_return_statement();
-    StmtHandle parse_if_statement();
-    StmtHandle parse_while_statement();
-    StmtHandle parse_for_statement();
-    StmtHandle parse_var_decl_statement(bool is_const = false);
+    StmtHandle parse_if_statement(std::span<Attribute> attrs = {});
+    StmtHandle parse_while_statement(std::span<Attribute> attrs = {});
+    StmtHandle parse_for_statement(std::span<Attribute> attrs = {});
+    StmtHandle parse_var_decl_statement(bool is_const = false, bool is_static = false, std::span<Attribute> attrs = {});
     StmtHandle parse_expression_statement();
 
     // ========================================================================
@@ -111,6 +118,7 @@ private:
     // ========================================================================
 
     ExprHandle parse_expression();
+    ExprHandle parse_sizeof_expr();
     ExprHandle parse_assignment();
     ExprHandle parse_logical_or();
     ExprHandle parse_logical_and();
@@ -131,6 +139,7 @@ private:
     // ========================================================================
 
     TypeHandle parse_type();
+    TypeHandle parse_typeof_type();
     TypeHandle parse_type_postfix(TypeHandle base);
     TypeHandle parse_base_type();
 
@@ -141,7 +150,6 @@ private:
     bool is_type_keyword() const;
     bool is_primitive_type() const;
     std::vector<FunctionParameter> parse_parameter_list();
-    std::vector<Str> parse_attributes();
 };
 
 }  // namespace ibex

@@ -14,32 +14,48 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    std::string input_file = argv[1];
+    std::vector<std::unique_ptr<std::string>> file_contents;
+    std::vector<ibex::Token> tokens;
 
-    // Read input file
-    std::ifstream file(input_file);
-    if (!file.is_open()) {
-        std::cerr << "Error: Cannot open file: " << input_file << "\n";
-        return 1;
+    for (int i = 1; i < argc; ++i) {
+        std::string input_file = argv[i];
+        // Read input file
+        std::ifstream file(input_file);
+        if (!file.is_open()) {
+            std::cerr << "Error: Cannot open file: " << input_file << "\n";
+            return 1;
+        }
+
+        std::stringstream buffer;
+        buffer << file.rdbuf();
+        file_contents.push_back(std::make_unique<std::string>(buffer.str()));
     }
-
-    std::stringstream buffer;
-    buffer << file.rdbuf();
-    std::string source = buffer.str();
 
     // Lexical analysis
-    ibex::Lexer lexer(source);
-    std::vector<ibex::Token> tokens = lexer.tokenize();
-
-    if (!lexer.get_errors().empty()) {
-        std::cerr << "Lexical errors:\n";
-        for (const auto& error : lexer.get_errors()) {
-            std::cerr << "  " << error << "\n";
+    for (size_t i = 0; i < file_contents.size(); ++i) {
+        ibex::Lexer lexer(*file_contents[i]);
+        auto file_tokens = lexer.tokenize();
+        
+        if (!lexer.get_errors().empty()) {
+            std::cerr << "Lexical errors in file " << argv[i+1] << ":\n";
+            for (const auto& error : lexer.get_errors()) {
+                std::cerr << "  " << error << "\n";
+            }
+            return 1;
         }
-        return 1;
+
+        for (auto tok : file_tokens) {
+            if (tok.type == ibex::TokenType::EOF_TOKEN) {
+                if (i == file_contents.size() - 1) {
+                    tokens.push_back(tok);
+                }
+            } else {
+                tokens.push_back(tok);
+            }
+        }
     }
 
-    std::cout << "Tokenized " << tokens.size() << " tokens\n";
+    std::cout << "Tokenized " << tokens.size() << " tokens across " << file_contents.size() << " files\n";
 
     // Parsing
     ibex::Arena ast_arena;

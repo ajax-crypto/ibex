@@ -1,0 +1,1 @@
+import mod.*; const wildcard_pi := mod.math.PI;

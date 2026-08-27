@@ -1,0 +1,55 @@
+
+[[nodiscard]]
+struct MustUse {
+    value: i32 = 0;
+}
+
+[[discard]]
+foo: () -> MustUse {
+    return MustUse{value = 42};
+}
+
+[[deprecated("Use bar instead")]]
+old_func: () -> void {
+}
+
+bar: () -> i32 {
+    return 10; // no discard by default
+}
+
+[[is_attribute]] my_attr: (x: i32) -> bool {
+    return x > 0;
+}
+
+[[my_attr(2)]] // user-defined attribute
+main: () -> void {
+    [[unused]] unused_var := 10;
+    
+    used_var := 20;
+    b := used_var;
+    
+    missing_unused_var := 30; // Warning: Unused variable
+    
+    old_func(); // Warning: Call to deprecated function
+    
+    foo(); // Warning: Discarding return value of function 'foo' which returns a [[nodiscard]] type
+    bar(); // Warning: Discarding return value of function 'bar' (missing [[discard]] attribute)
+    
+    x := bar(); // OK
+    
+    if [[platform("win32")]] {
+        win32_var := 1;
+        // OK
+    } else {
+        // Skipped entirely
+        this_is_syntax_error % 10 !!!
+    }
+    
+}
+
+[[platform("linux")]]
+linux_only_func: () -> void {
+    this is total gibberish because it is skipped
+}
+
+

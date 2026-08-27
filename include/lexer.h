@@ -15,13 +15,13 @@ enum class TokenType {
     INTEGER_LITERAL,
     FLOAT_LITERAL,
     STRING_LITERAL,
+    RAW_STRING_LITERAL,
     TRUE_LITERAL,
     FALSE_LITERAL,
     NULL_LITERAL,
 
     // Keywords
     STRUCT,         // struct
-    CLASS,          // class
     ENUM,           // enum
     FLAG,           // flag (bitset enum)
     USING,          // using (compile-time function binding)
@@ -33,12 +33,15 @@ enum class TokenType {
     WHILE,          // while
     BREAK,          // break
     CONTINUE,       // continue
-    PRIVATE,        // private
-    PUBLIC,         // public
-    PROTECTED,      // protected
     STATIC,         // static
     CONST_KW,       // const
     AS,             // as (type casting)
+    PACKAGE,        // package
+    EXPORT,         // export
+    MODULE,         // module
+    IMPORT,         // import
+    TYPEOF,         // typeof
+    SIZEOF,         // sizeof
 
     // Primitive types
     I8, I16, I32, I64,
@@ -46,6 +49,7 @@ enum class TokenType {
     BYTE,           // byte type (u8 alias)
     F32, F64,
     BOOL,
+    TEXT,           // text type
 
     // Operators
     PLUS,           // +
@@ -167,6 +171,7 @@ private:
     // Lexing helpers
     Token scan_number();
     Token scan_string();
+    Token scan_raw_string();
     Token scan_identifier();
     
     // Keyword lookup

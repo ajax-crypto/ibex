@@ -3,3 +3,5 @@ build/
 
 # VS Code directory
 .vscode/
+
+.internal/

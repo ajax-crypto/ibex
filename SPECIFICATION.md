@@ -1,0 +1,201 @@
+# Ibex Language Specification
+
+## Table of Contents
+- [1. Lexical Elements](#1-lexical-elements)
+  - [1.1 Keywords](#11-keywords)
+  - [1.2 Operators and Precedence](#12-operators-and-precedence)
+  - [1.3 Comments and Delimiters](#13-comments-and-delimiters)
+- [2. Syntax & Grammar](#2-syntax--grammar)
+  - [2.1 Declarations](#21-declarations)
+  - [2.2 Statements and Expressions](#22-statements-and-expressions)
+  - [2.3 Types](#23-types)
+- [3. Semantics](#3-semantics)
+  - [3.1 Variable Lifetime & Scoping](#31-variable-lifetime--scoping)
+  - [3.2 Control Flow](#32-control-flow)
+  - [3.3 Modifiers & Immutability](#33-modifiers--immutability)
+  - [3.4 Implicit Structural Members](#34-implicit-structural-members)
+  - [3.5 Attributes](#35-attributes)
+  - [3.6 Packages & Modules](#36-packages--modules)
+  - [3.7 Initialization and Function Calls](#37-initialization-and-function-calls)
+  - [3.8 Inheritance and Composition](#38-inheritance-and-composition)
+  - [3.9 Uniform Function Call Syntax (UFCS)](#39-uniform-function-call-syntax-ufcs)
+
+---
+
+## 1. Lexical Elements
+
+### 1.1 Keywords
+The following keywords are reserved and cannot be used as identifiers:
+`return`, `if`, `else`, `while`, `for`, `in`, `break`, `continue`, `struct`, `enum`, `flag`, `using`, `const`, `var`, `static`, `package`, `module`, `export`, `import`, `as`, `sizeof`, `typeof`, `true`, `false`, `null`
+
+Primitive type keywords:
+`i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, `bool`, `text`, `byte` (alias for `u8`)
+
+### 1.2 Operators and Precedence
+Operators are listed from highest to lowest precedence.
+
+| Precedence | Operator | Description | Arity |
+|---|---|---|---|
+| 1 | `()` `[]` `.` | Grouping, Indexing, Member Access | Binary/NA |
+| 2 | `!` `~` `-` `@` `&` `*` `sizeof` `typeof` | Logical NOT, Bitwise NOT, Negation, Address-of, Dereference, Size/Type | Unary |
+| 3 | `as` | Type Cast | Binary |
+| 4 | `*` `/` `%` | Multiplication, Division, Modulo | Binary |
+| 5 | `+` `-` | Addition, Subtraction | Binary |
+| 6 | `<<` `>>` | Bitwise Left/Right Shift | Binary |
+| 7 | `<` `<=` `>` `>=` | Relational Comparisons | Binary |
+| 8 | `==` `!=` | Equality Comparisons | Binary |
+| 9 | `&` | Bitwise AND | Binary |
+| 10 | `^` | Bitwise XOR | Binary |
+| 11 | `\|` | Bitwise OR | Binary |
+| 12 | `&&` | Logical AND | Binary |
+| 13 | `\|\|` | Logical OR | Binary |
+| 14 | `=` `:=` `+=` `-=` `*=` `/=` | Assignment and Compound Assignment | Binary |
+
+### 1.3 Comments and Delimiters
+Ibex uses strict structural delimiters to ensure unambiguous parsing:
+- **Statement Delimiter**: All individual statements (declarations, assignments, expression evaluations, returns) must be terminated by a semicolon `;`.
+- **Block Delimiters**: Logical scopes (e.g., function bodies, packages, structs, loops, conditionals) are wrapped in curly braces `{` and `}`. Control flow statements like `if`, `for`, or `while` *require* braces; single-statement un-braced bodies are not permitted.
+- **Compile-Time Target Delimiter**: The hash/pound symbol `#` is a specialized delimiter used to denote compile-time symbol resolution, primarily utilized in function binding declarations.
+
+**Comments**:
+Comments are ignored by the parser and can be placed anywhere whitespace is valid.
+- **Single-line**: `//` ignores all characters until a newline (`\n`) or EOF is reached.
+- **Multi-line**: `/*` begins a block comment, and `*/` closes it. Multi-line comments can span multiple lines.
+
+```ebnf
+SingleLineComment ::= "//" { AnyCharExceptNewline } ( "\n" | EOF )
+MultiLineComment  ::= "/*" { AnyChar } "*/"
+```
+
+## 2. Syntax & Grammar
+*Note: Represented in pseudo-EBNF.*
+
+### 2.1 Declarations
+```ebnf
+Program ::= { Decl }
+Decl ::= VarDecl | FuncDecl | StructDecl | EnumDecl | FlagDecl 
+       | PackageDecl | ModuleDecl | ImportDecl | TypeAliasDecl | UsingDecl
+
+AttributeList ::= "[[" Attribute { "," Attribute } "]]"
+Attribute ::= Identifier [ "(" Expr ")" ]
+
+FuncDecl ::= [AttributeList] Identifier ":" "(" [ParamList] ")" [ "->" Type ] BlockStmt
+ParamList ::= Param { "," Param }
+Param ::= [AttributeList] Identifier ":" Type
+
+StructDecl ::= [AttributeList] "struct" Identifier [ ":" BaseList ] "{" { StructMember } "}"
+StructMember ::= Identifier ":" Type [ "=" Expr ] ";"
+BaseList ::= Identifier { "," Identifier }
+
+EnumDecl ::= [AttributeList] "enum" Identifier [ ":" Type ] "{" [ EnumMemberList ] "}"
+EnumMemberList ::= EnumMember { "," EnumMember }
+EnumMember ::= Identifier [ "=" Expr ]
+
+FlagDecl ::= [AttributeList] "flag" Identifier [ ":" Type ] "{" [ FlagMemberList ] "}"
+FlagMemberList ::= FlagMember { "," FlagMember }
+FlagMember ::= Identifier [ "=" Expr ]
+
+VarDecl ::= ["const" | "var"] Identifier [ ":" Type ] [ ( "=" | ":=" ) Expr ] ";"
+PackageDecl ::= "package" Identifier "{" { Decl } "}"
+ModuleDecl ::= "module" Identifier "{" { ExportDecl | ConstDecl | StructDecl | EnumDecl | FlagDecl | TypeAliasDecl } "}"
+ExportDecl ::= "export" "package" Identifier { "," Identifier } ";"
+ImportDecl ::= "import" Identifier "." ( Identifier "as" Identifier | "*" ) ";"
+
+TypeAliasDecl ::= [AttributeList] "using" Identifier "=" Type ";"
+UsingDecl ::= [AttributeList] "using" Identifier ":=" "#" Identifier "(" [BindingArgList] ")" ";"
+BindingArgList ::= BindingArg { "," BindingArg }
+BindingArg ::= [ Expr ]  /* Omitted Expr indicates an unbound parameter slot */
+```
+
+### 2.2 Statements and Expressions
+```ebnf
+Stmt ::= BlockStmt | IfStmt | WhileStmt | ForStmt | ReturnStmt | VarDeclStmt | ExprStmt | ConstModStmt | ConstBlockStmt
+BlockStmt ::= "{" { Stmt } "}"
+
+IfStmt ::= "if" Expr BlockStmt [ "else" ( IfStmt | BlockStmt ) ]
+WhileStmt ::= "while" Expr BlockStmt [ "else" BlockStmt ]
+ForStmt ::= "for" Identifier "in" Expr BlockStmt
+
+ConstModStmt ::= "const" "(" IdentifierList ")" ";"
+ConstBlockStmt ::= "const" "(" IdentifierList ")" BlockStmt
+IdentifierList ::= Identifier { "," Identifier }
+
+ReturnStmt ::= "return" [ Expr ] ";"
+BreakStmt ::= "break" ";"
+ContinueStmt ::= "continue" ";"
+
+Expr ::= BinaryExpr | UnaryExpr | PrimaryExpr | CastExpr | MemberExpr | IndexExpr | CallExpr | SizeofExpr | StructInitExpr | ArrayLiteralExpr
+CallExpr ::= Expr "(" [ CallArgList ] ")"
+CallArgList ::= CallArg { "," CallArg }
+CallArg ::= [ Identifier "=" ] Expr
+
+StructInitExpr ::= Identifier "{" [ StructInitList ] "}"
+StructInitList ::= StructFieldInit { "," StructFieldInit }
+StructFieldInit ::= [ Identifier ( ":" | "=" ) ] Expr
+
+ArrayLiteralExpr ::= "[" [ExprList] "]"
+
+SizeofExpr ::= "sizeof" "(" (Type | Expr) ")"
+TypeofExpr ::= "typeof" "(" Expr ")"
+```
+
+### 2.3 Types
+```ebnf
+Type ::= PrimitiveType | NamedType | PointerType | ReferenceType | ArrayType | SliceType | TypeofExpr
+ArrayType ::= "[" Expr "]" Type
+SliceType ::= "[:" Type "]"
+PointerType ::= "*" Type
+ReferenceType ::= "&" Type
+```
+
+## 3. Semantics
+
+### 3.1 Variable Lifetime & Scoping
+- **Block Scope**: Variables declared inside `{}` are inaccessible outside.
+- **Static Duration**: `static` variables persist for the duration of the program.
+
+### 3.2 Control Flow
+- **If Statements**: Parentheses around the condition are not required. Execution branches based on the expression.
+- **Loops (`while`, `for`)**: 
+  - Iteration blocks require braces `{}`. 
+  - `break;` immediately terminates the innermost enclosing loop block.
+  - `continue;` immediately halts the current iteration, skipping the remaining block, and proceeds to the next evaluation/iteration phase.
+  - `while` loops support an optional `else` block which executes if the loop terminates normally (without hitting a `break`).
+
+### 3.3 Modifiers & Immutability
+- **`const` Keyword**: Variables marked const cannot be mutated. Compile-time literal assignments automatically infer `const`.
+- **Const Modifiers**: You can mark existing variables as immutable dynamically using `const(var1, var2);`. They become immutable from that statement forward in the current scope.
+- **Const Blocks**: You can mark existing variables as immutable strictly for the duration of a specific block using `const(var1, var2) { ... }`. Once the block exits, mutability returns to its prior state.
+
+### 3.4 Implicit Structural Members
+- **Arrays & Slices**: All arrays (`[N]T`) and slices (`[:T]`) intrinsically possess a read-only `.size` member which returns the element count. For explicit arrays, this is a compile-time constant.
+- **`text` Type**: Strings are implicit UTF-8 byte arrays. The `text` type exposes intrinsic properties:
+  - `.prefix`: A `text` slice pointing strictly to the prefix string literal (e.g. `html` in `html'''...'''`).
+  - `.bytes`: Exposes the underlying `u8` array containing the raw string data.
+  - `.bytes.size`: Returns the byte-count of the UTF-8 text string as a compile-time constant.
+
+### 3.5 Attributes
+Applied via `[[name(args)]]`.
+- `[[strong]]`: Used on aliases. Creates a strict type boundary prohibiting implicit mix with base types. Requires `as` operator to cast.
+- `[[unused]]`: Suppresses unused symbol warnings on functions or variables.
+- `[[deprecated("reason")]]`: Triggers compiler warnings on reference/invocation.
+- `[[platform("win32"|"linux"|"mac")]]`: Conditionally parses blocks or functions based on target architecture, skipping parse completely on un-matching platforms.
+- `[[discard]]`: Discards the return value implicitly.
+
+### 3.6 Packages & Modules
+- **Packages** are isolated namespaces. Members inside cannot be externally accessed unless exported through a Module.
+- **Modules** distribute Packages and can hold their own `const` fields and declarations.
+- **Access via Wildcard** (`import mod.*`) exposes packages under their native name (e.g., `mod.pkg.symbol`).
+- **Access via Alias** (`import mod.pkg as p`) binds the package namespace strictly to `p` (e.g., `p.symbol`).
+
+### 3.7 Initialization and Function Calls
+- **Named Arguments**: Function calls support explicit parameter binding via named arguments using the `=` operator (e.g., `func(name = val)`). This allows parameters to be passed out-of-order and provides self-documenting call sites.
+- **Designated Initializers**: Struct instantiation supports designated initializers mapping fields to expressions. Both `:` and `=` operators are valid mapping delimiters (e.g., `Point { x: 10, y: 20 }` or `Point { x = 10, y = 20 }`). Positional initialization is also supported by omitting the field name.
+
+### 3.8 Inheritance and Composition
+- **Struct Composition**: `struct Derived : Base` embeds the fields of `Base` directly into `Derived` in memory, exactly as if they were declared manually in order. There are no virtual tables (v-tables) or dynamic dispatch overheads. Multiple bases (`struct Derived : B1, B2`) embed fields sequentially in declaration order.
+- **Enum and Flag Extension**: An `enum` or `flag` declared with a named base type (e.g., `enum Ext : BaseEnum`) strictly inherits all enumerators from `BaseEnum` and explicitly shares its underlying primitive type footprint. 
+
+### 3.9 Uniform Function Call Syntax (UFCS)
+- **Syntactic Rewrite**: The member access call expression `obj.func(args...)` is strictly syntactically equivalent and intrinsically rewritten by the parser to `func(obj, args...)`. 
+- **Object Resolution**: Because of UFCS, Ibex does not have traditional "methods" bound inside structs. Any standalone function can be called via method-syntax on an object so long as that function explicitly takes the object type as its first parameter.

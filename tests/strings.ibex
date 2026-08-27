@@ -1,0 +1,19 @@
+text_test: () -> void {
+    str := html'''<html></html>''';
+    prefix := str.prefix;
+    size := str.prefix.size;
+    bytes := str.bytes;
+    bytes_size := str.bytes.size;
+
+    plain_str := "this is text";
+    plain_bytes := plain_str.bytes;
+    plain_bytes_size := plain_str.bytes.size;
+    is_literal := plain_str.literal;
+
+    sql_str := sql"SELECT * FROM users";
+    sql_prefix := sql_str.prefix;
+    
+    // Test const inference (should produce semantic error if un-commented, 
+    // but we want the test to pass so we keep it commented out, 
+    // actually let's test it in a separate file or just run it manually)
+}

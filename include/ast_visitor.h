@@ -21,6 +21,7 @@ public:
     virtual void visit(const ArrayType& type) = 0;
     virtual void visit(const SliceType& type) = 0;
     virtual void visit(const NamedType& type) = 0;
+    virtual void visit(const TypeofType& type) = 0;
 };
 
 inline void visit_type(const Type& type, TypeVisitor* visitor) {
@@ -48,6 +49,7 @@ public:
     virtual void visit(const AllocExpr& expr) = 0;
     virtual void visit(const FreeExpr& expr) = 0;
     virtual void visit(const BlockExpr& expr) = 0;
+    virtual void visit(const SizeofExpr& expr) = 0;
 };
 
 inline void visit_expr(const Expr& expr, ExprVisitor* visitor) {
@@ -84,11 +86,15 @@ public:
     virtual void visit(const FunctionDecl& decl) = 0;
     virtual void visit(const VariableDecl& decl) = 0;
     virtual void visit(const StructDecl& decl) = 0;
-    virtual void visit(const ClassDecl& decl) = 0;
     virtual void visit(const EnumDecl& decl) = 0;
     virtual void visit(const FlagDecl& decl) = 0;
     virtual void visit(const FunctionBindingDecl& decl) = 0;
     virtual void visit(const AllocDecl& decl) = 0;
+    virtual void visit(const PackageDecl& decl) = 0;
+    virtual void visit(const ModuleDecl& decl) = 0;
+    virtual void visit(const ImportDecl& decl) = 0;
+    virtual void visit(const ExportPackagesDecl& decl) = 0;
+    virtual void visit(const TypeAliasDecl& decl) = 0;
 };
 
 inline void visit_decl(const Decl& decl, DeclVisitor* visitor) {

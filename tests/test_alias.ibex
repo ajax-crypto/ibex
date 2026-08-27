@@ -1,0 +1,1 @@
+package types { [[strong]] using MyInt = i32; using WeakInt = i32; using MyAlias = WeakInt; } module m { export package types; } import m.types as t; const a := sizeof(t.MyInt); const b := sizeof(a); using T = typeof(a);
