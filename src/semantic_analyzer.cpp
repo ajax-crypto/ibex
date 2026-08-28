@@ -154,8 +154,7 @@ void SemanticAnalyzer::pop_scope() {
     }
 }
 
-void SemanticAnalyzer::add_symbol(Str name, TypeHandle type, DeclHandle decl_handle, bool is_const, bool allow_unused) {
-    std::cout << "add_symbol: " << std::string(name.ptr(), name.len()) << "\n";
+void SemanticAnalyzer::add_symbol(Str name, TypeHandle type, DeclHandle decl_handle, bool is_const, bool allow_unused, bool is_static) {
     if (scopes_.empty()) return;
     for (const auto& sym : scopes_.back().symbols) {
         if (sym.name == name) {
@@ -163,13 +162,21 @@ void SemanticAnalyzer::add_symbol(Str name, TypeHandle type, DeclHandle decl_han
             return;
         }
     }
+    
+    uint32_t current_depth = static_cast<uint32_t>(scopes_.size() - 1);
+    bool effective_static = is_static || (current_depth == 0);
+    
     scopes_.back().symbols.push_back({
         .name = name, 
         .type = type, 
         .decl_handle = decl_handle, 
         .is_const = is_const, 
         .is_used = false, 
-        .allow_unused = allow_unused
+        .allow_unused = allow_unused,
+        .is_namespace = false,
+        .namespace_target = "",
+        .scope_depth = current_depth,
+        .is_static = effective_static
     });
 }
 
@@ -479,6 +486,9 @@ void SemanticAnalyzer::visit(const BinaryExpr& expr) {
     if (expr.op == TokenType::EQUAL || expr.op == TokenType::PLUS_EQUAL || expr.op == TokenType::MINUS_EQUAL ||
         expr.op == TokenType::STAR_EQUAL || expr.op == TokenType::SLASH_EQUAL) {
         check_mutation(expr.left);
+        if (expr.op == TokenType::EQUAL) {
+            check_escape(expr.left, expr.right);
+        }
     }
 
     if (!expr.left.is_null()) visit_expr(program_.expressions[expr.left.index], this);
@@ -1299,6 +1309,7 @@ void SemanticAnalyzer::visit(const BlockStmt& stmt) {
 void SemanticAnalyzer::visit(const ReturnStmt& stmt) {
     if (stmt.value && !stmt.value.value().is_null()) {
         visit_expr(program_.expressions[stmt.value.value().index], this);
+        check_escape_return(stmt.value.value());
     }
 }
 
@@ -1348,9 +1359,12 @@ void SemanticAnalyzer::visit(const ExprStmt& stmt) {
 
 void SemanticAnalyzer::visit(const VarDeclStmt& stmt) {
     validate_attributes(stmt.attributes);
-    if (stmt.type && !stmt.type.value().is_null()) visit_type(program_.types[stmt.type.value().index], this);
+    if (stmt.type && !stmt.type.value().is_null()) visit_type(program_.types[stmt.type.value().index], this);    TypeHandle resolved_type = stmt.type.value_or(TypeHandle{0});
     if (stmt.initializer && !stmt.initializer.value().is_null()) {
         visit_expr(program_.expressions[stmt.initializer.value().index], this);
+        if (!stmt.type) {
+            resolved_type = current_expr_type_;
+        }
         if (stmt.type && !stmt.type.value().is_null()) {
             if (auto* var_type = std::get_if<VariantType>(&program_.types[stmt.type.value().index])) {
                 if (auto* lit = std::get_if<LiteralExpr>(&program_.expressions[stmt.initializer.value().index])) {
@@ -1378,7 +1392,7 @@ void SemanticAnalyzer::visit(const VarDeclStmt& stmt) {
             report_error("Variant types must be initialized");
         }
     }
-    add_symbol(stmt.name, stmt.type.value_or(TypeHandle{0}), DeclHandle{}, stmt.is_const, has_attribute(stmt.attributes, "unused"));
+    add_symbol(stmt.name, resolved_type, DeclHandle{}, stmt.is_const, has_attribute(stmt.attributes, "unused"));
 }
 
 void SemanticAnalyzer::visit(const ConstBlockStmt& stmt) {
@@ -1810,4 +1824,60 @@ void SemanticAnalyzer::visit(const AllocDecl& decl) {
     add_symbol(decl.name, TypeHandle{0});
 }
 
+
+// ----------------------------------------------------------------------------
+// Escape Analysis
+// ----------------------------------------------------------------------------
+uint32_t SemanticAnalyzer::get_target_depth(ExprHandle handle) {
+    if (handle.is_null()) return 0;
+    auto& expr = program_.expressions[handle.index];
+    if (auto* id = std::get_if<IdentifierExpr>(&expr)) {
+        if (auto sym = find_symbol(id->name)) {
+            return sym->is_static ? 0 : sym->scope_depth;
+        }
+    } else if (auto* mem = std::get_if<MemberExpr>(&expr)) {
+        return get_target_depth(mem->object);
+    } else if (auto* idx = std::get_if<IndexExpr>(&expr)) {
+        return get_target_depth(idx->object);
+    }
+    return 0;
+}
+
+uint32_t SemanticAnalyzer::get_lifetime_depth(ExprHandle handle) {
+    if (handle.is_null()) return 0;
+    auto& expr = program_.expressions[handle.index];
+    if (auto* ref = std::get_if<RefExpr>(&expr)) {
+        return get_target_depth(ref->operand);
+    } else if (auto* addrof = std::get_if<AddressOfExpr>(&expr)) {
+        return get_target_depth(addrof->operand);
+    } else if (auto* block = std::get_if<BlockExpr>(&expr)) {
+        if (!block->statements.empty()) {
+            auto& last_stmt = program_.statements[block->statements.back().index];
+            if (auto* expr_stmt = std::get_if<ExprStmt>(&last_stmt)) {
+                return get_lifetime_depth(expr_stmt->expression);
+            }
+        }
+    }
+    return 0;
+}
+
+void SemanticAnalyzer::check_escape(ExprHandle target, ExprHandle value) {
+    if (target.is_null() || value.is_null()) return;
+    uint32_t target_depth = get_target_depth(target);
+    uint32_t value_depth = get_lifetime_depth(value);
+    
+    if (value_depth > target_depth) {
+        report_error("Escape analysis failed: assigned reference/pointer outlives its target");
+    }
+}
+
+void SemanticAnalyzer::check_escape_return(ExprHandle value) {
+    if (value.is_null()) return;
+    uint32_t value_depth = get_lifetime_depth(value);
+    if (value_depth > 0) {
+        report_error("Escape analysis failed: returning a reference or pointer to a local variable");
+    }
+}
 } // namespace ibex
+
+

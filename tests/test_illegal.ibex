@@ -117,3 +117,22 @@ invalid_ptrs_and_refs: () -> void {
     
     *x; // Cannot dereference non-pointer
 }
+
+// Escape analysis tests
+escape_return_ref: () -> &i32 {
+    x := 5;
+    return ref x; // illegal: returning ref to local
+}
+
+escape_return_ptr: () -> *i32 {
+    x := 5;
+    return @x; // illegal: returning ptr to local
+}
+
+escape_assignment: () -> void {
+    x : &i32;
+    {
+        y := 10;
+        x = ref y; // illegal: y outlives x
+    }
+}

@@ -318,3 +318,9 @@ test_ptrs_and_refs: () -> void {
     arr_ptr : *i32 = @arr;
     *arr_ptr = 3;
 }
+
+// Ensure valid escapes don't error
+static_x := 5;
+valid_escape: () -> &i32 {
+    return ref static_x; // legal: static_x has depth 0
+}

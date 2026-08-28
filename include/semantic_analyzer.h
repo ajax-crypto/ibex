@@ -22,6 +22,10 @@ struct Symbol {
     // For namespaces/packages
     bool is_namespace = false;
     std::string namespace_target;
+    
+    // For escape analysis
+    uint32_t scope_depth = 0;
+    bool is_static = false;
 };
 
 struct Scope {
@@ -115,7 +119,7 @@ public:
 private:
     void push_scope();
     void pop_scope();
-    void add_symbol(Str name, TypeHandle type, DeclHandle decl_handle = DeclHandle{}, bool is_const = false, bool allow_unused = false);
+    void add_symbol(Str name, TypeHandle type, DeclHandle decl_handle = DeclHandle{}, bool is_const = false, bool allow_unused = false, bool is_static = false);
     std::optional<Symbol> find_symbol(Str name);
     void report_error(const std::string& msg);
 
@@ -124,6 +128,13 @@ private:
     void check_deprecated(const Symbol& sym);
     void check_discard(ExprHandle expr_handle);
     void check_mutation(ExprHandle handle);
+    
+    // Escape analysis
+    uint32_t get_target_depth(ExprHandle handle);
+    uint32_t get_lifetime_depth(ExprHandle handle);
+    void check_escape(ExprHandle target, ExprHandle value);
+    void check_escape_return(ExprHandle value);
+    
     TypeHandle resolve_type(const Type& type_variant);
     
     // Struct inheritance helper
