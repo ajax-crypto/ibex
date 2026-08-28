@@ -58,6 +58,8 @@ public:
     virtual void visit(const LambdaExpr& expr) = 0;
     virtual void visit(const TupleExpr& expr) = 0;
     virtual void visit(const UnwrapExpr& expr) = 0;
+    virtual void visit(const DereferenceExpr& expr) = 0;
+    virtual void visit(const RefExpr& expr) = 0;
 };
 
 inline void visit_expr(const Expr& expr, ExprVisitor* visitor) {

@@ -1396,7 +1396,19 @@ ExprHandle ParserNew::parse_multiplication() {
 }
 
 ExprHandle ParserNew::parse_unary() {
-    if (match(TokenType::BANG) || match(TokenType::MINUS) || match(TokenType::STAR) ||
+    if (match(TokenType::REF)) {
+        auto operand = parse_unary();
+        RefExpr ref_expr{operand};
+        return store_expr(ref_expr);
+    }
+    
+    if (match(TokenType::STAR)) {
+        auto operand = parse_unary();
+        DereferenceExpr deref{operand};
+        return store_expr(deref);
+    }
+
+    if (match(TokenType::BANG) || match(TokenType::MINUS) ||
         match(TokenType::AMPERSAND) || match(TokenType::PLUS) || match(TokenType::TILDE)) {
         TokenType op = tokens_[current_ - 1].type;
         auto right = parse_unary();

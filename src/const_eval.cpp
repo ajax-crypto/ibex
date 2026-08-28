@@ -124,6 +124,11 @@ std::optional<ConstValue> ConstExprEvaluator::eval_binary(const BinaryExpr& expr
                 case TokenType::GREATER:    return ConstValue{*li > *ri};
                 case TokenType::LESS_EQ:    return ConstValue{*li <= *ri};
                 case TokenType::GREATER_EQ: return ConstValue{*li >= *ri};
+                case TokenType::PIPE:       return ConstValue{*li | *ri};
+                case TokenType::CARET:      return ConstValue{*li ^ *ri};
+                case TokenType::AMPERSAND:  return ConstValue{*li & *ri};
+                case TokenType::LSHIFT:     return ConstValue{*li << *ri};
+                case TokenType::RSHIFT:     return ConstValue{*li >> *ri};
                 default: return std::nullopt;
             }
         }
@@ -188,6 +193,9 @@ std::optional<ConstValue> ConstExprEvaluator::eval_unary(const UnaryExpr& expr) 
         case TokenType::MINUS:
             if (auto* i = std::get_if<int64_t>(&*operand)) return ConstValue{-*i};
             if (auto* d = std::get_if<double>(&*operand)) return ConstValue{-*d};
+            break;
+        case TokenType::TILDE:
+            if (auto* i = std::get_if<int64_t>(&*operand)) return ConstValue{~*i};
             break;
         case TokenType::BANG:
             if (auto* b = std::get_if<bool>(&*operand)) return ConstValue{!*b};

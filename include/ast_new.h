@@ -241,6 +241,16 @@ struct SizeofExpr {
     std::optional<ExprHandle> expr_operand;
 };
 
+// Dereference expression: *expr
+struct DereferenceExpr {
+    ExprHandle pointer;
+};
+
+// Ref expression: ref expr or ref(expr)
+struct RefExpr {
+    ExprHandle operand;
+};
+
 // Function binding expression: #func(named_arg=value, ...)
 // Creates a partially-applied function
 struct BindingExpr {
@@ -293,7 +303,9 @@ using Expr = std::variant<
     BindingExpr,
     LambdaExpr,
     TupleExpr,
-    UnwrapExpr
+    UnwrapExpr,
+    DereferenceExpr,
+    RefExpr
 >;
 
 // ============================================================================

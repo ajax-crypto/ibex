@@ -80,6 +80,8 @@ public:
     void visit(const LambdaExpr& expr) override;
     void visit(const TupleExpr& expr) override;
     void visit(const UnwrapExpr& expr) override;
+    void visit(const DereferenceExpr& expr) override;
+    void visit(const RefExpr& expr) override;
 
     // StmtVisitor
     void visit(const BlockStmt& stmt) override;
@@ -121,6 +123,7 @@ private:
     bool has_attribute(std::span<Attribute> attrs, std::string_view name) const;
     void check_deprecated(const Symbol& sym);
     void check_discard(ExprHandle expr_handle);
+    void check_mutation(ExprHandle handle);
     TypeHandle resolve_type(const Type& type_variant);
     
     // Struct inheritance helper

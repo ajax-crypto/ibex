@@ -216,6 +216,7 @@ TokenType Lexer::keyword_type(std::string_view lexeme) {
         {"typeof", TokenType::TYPEOF},
         {"sizeof", TokenType::SIZEOF},
         {"or", TokenType::OR},
+        {"ref", TokenType::REF},
         {"true", TokenType::TRUE_LITERAL},
         {"false", TokenType::FALSE_LITERAL},
         {"null", TokenType::NULL_LITERAL},

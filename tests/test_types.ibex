@@ -286,3 +286,35 @@ test_multiple_const_scope: () -> void {
 // 50. Complex type parsing
 complex_types: (a: *[]&*[5]i32) -> void {}
 
+
+// 51. Pointers and References
+struct PtrRefNode {
+    value: i32;
+}
+
+test_ptrs_and_refs: () -> void {
+    x : i32 = 2;
+    y : &i32 = ref x;
+    y2 := ref(x);
+    
+    // Pointer
+    p : *i32 = @x;
+    *p = 5;
+    
+    const cp := @x;
+    *cp = 10;
+    
+    // Struct
+    node : PtrRefNode = PtrRefNode{1};
+    node.value = 1;
+    
+    node_ptr := @node;
+    node_ptr.value = 2;
+    
+    node_ref := ref node;
+    
+    // Array
+    arr : [5]i32;
+    arr_ptr : *i32 = @arr;
+    *arr_ptr = 3;
+}

@@ -17,6 +17,7 @@ Ibex is a statically typed, compiled systems language. This document details its
 ---
 
 ## 1. Basic Types
+
 - **Primitives**: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, `bool`.
 - **Text / Strings**: Represented by the `text` type. Implicitly UTF-8 array of `u8` bytes. 
   - Raw literals: `html'''<html>'''`. Exposes `.prefix` and `.bytes` properties. `.bytes.size` is a compile-time constant. Compile-time string declarations infer `const text`.
@@ -37,7 +38,14 @@ const y := 20; // Type inferred as i32
 ```
 Compile-time strings and constants are implicitly inferred as `const`.
 
-## 3. Functions & Bindings
+## 3. Operators
+- **Arithmetic**: `+`, `-`, `*`, `/`, `%`
+- **Bitwise**: `|` (OR), `&` (AND), `^` (XOR), `~` (COMPLEMENT), `<<` (Left Shift), `>>` (Right Shift). Restricted purely to integer types (`u8`, `i32`, etc.).
+- **Logical**: `&&`, `||`, `!`
+- **Null Coalescing**: `or` (used for unwrapping Optionals)
+- **Unwrap**: `?` (postfix unwrapping of Optionals)
+
+## 4. Functions & Bindings
 Standard functions:
 ```ibex
 add : (a: i32, b: i32) -> i32 { return a + b; }
@@ -53,6 +61,25 @@ Compile-time partial application (Function Bindings):
 ```ibex
 using add_five := #add(, 5);
 ```
+
+## 4. Pointers and References
+
+Ibex supports both pointers and references for memory access.
+
+### References (`&T`)
+- References are created using the `ref` keyword: `y := ref x;` or `y := ref(x);`
+- They must always be initialized and there is no implicit conversion from value to reference.
+- References are **always const by default** concerning the underlying data. You cannot modify the underlying variable through a reference (`y.mem = 5` is illegal if `y` is a reference).
+- However, since const-ness is a property of the variable, the reference itself can be re-bound to another location: `y = ref z;`
+- References are auto-dereferenced when their members are accessed.
+
+### Pointers (`*T`)
+- Pointers are created using the address-of operator `@`: `p := @x;`
+- Pointer dereferencing uses the `*` operator: `*p = 5;`
+- Pointers can read and write the underlying variable.
+- Const-ness is a property of the variable, not the type. A const pointer `const p := @x;` means `p` cannot point to something else (`p = @y` is illegal), but you CAN mutate the underlying data (`*p = 5` or `p.mem = 5` are legal).
+- For pointers to structs, there is no special `->` operator. The standard `.` operator accesses members directly: `p.member`.
+- A pointer to an array (`@arr`) evaluates to a pointer to its first element (`*T`).
 
 ## 4. Structs, Enums, and Extensions
 No OOP classes, virtual tables, or complex class hierarchies. Structs strictly hold data and support structural composition via a colon syntax `:`.

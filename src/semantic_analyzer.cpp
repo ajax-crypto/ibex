@@ -418,24 +418,57 @@ void SemanticAnalyzer::visit(const VariantType& type) {
     }
 }
 
-// ----------------------------------------------------------------------------
-// Helper: check mutation target
-// ----------------------------------------------------------------------------
-static void check_mutation(Program& program_, ExprHandle handle,
-    const std::function<std::optional<Symbol>(Str)>& find_symbol,
-    const std::function<void(const std::string&)>& report_error) {
+void SemanticAnalyzer::check_mutation(ExprHandle handle) {
     if (handle.is_null()) return;
     if (handle.index >= program_.expressions.size()) return;
     auto& expr = program_.expressions[handle.index];
-    if (auto* id = std::get_if<IdentifierExpr>(&expr)) {
+    
+    // First, check if the expression itself is a DereferenceExpr
+    if (std::holds_alternative<DereferenceExpr>(expr)) {
+        // Mutating through a pointer dereference (*ptr = value) is always allowed.
+        // The pointer itself is not being mutated.
+        return;
+    }
+    
+    // For member access or array indexing, check if the object is a pointer/reference.
+    // If it's a pointer, mutating its member is allowed (mutating the pointee).
+    // If it's a reference, mutating its member is forbidden ("References cannot be used to modify the underlying variable").
+    if (auto* mem = std::get_if<MemberExpr>(&expr)) {
+        TypeHandle old_type = current_expr_type_;
+        visit_expr(program_.expressions[mem->object.index], this);
+        TypeHandle obj_type = current_expr_type_;
+        current_expr_type_ = old_type;
+        
+        if (!obj_type.is_null()) {
+            auto& t = program_.types[obj_type.index];
+            if (std::holds_alternative<PointerType>(t)) {
+                return;
+            } else if (std::holds_alternative<ReferenceType>(t)) {
+                report_error("Cannot mutate through a reference");
+                return;
+            }
+        }
+        check_mutation(mem->object);
+    } else if (auto* idx = std::get_if<IndexExpr>(&expr)) {
+        TypeHandle old_type = current_expr_type_;
+        visit_expr(program_.expressions[idx->object.index], this);
+        TypeHandle obj_type = current_expr_type_;
+        current_expr_type_ = old_type;
+        
+        if (!obj_type.is_null()) {
+            if (std::holds_alternative<PointerType>(program_.types[obj_type.index])) {
+                return;
+            } else if (std::holds_alternative<ReferenceType>(program_.types[obj_type.index])) {
+                report_error("Cannot mutate through a reference");
+                return;
+            }
+        }
+        check_mutation(idx->object);
+    } else if (auto* id = std::get_if<IdentifierExpr>(&expr)) {
         auto sym = find_symbol(id->name);
         if (sym && sym->is_const) {
             report_error("Cannot mutate const variable: '" + std::string(id->name.ptr(), id->name.len()) + "'");
         }
-    } else if (auto* mem = std::get_if<MemberExpr>(&expr)) {
-        check_mutation(program_, mem->object, find_symbol, report_error);
-    } else if (auto* idx = std::get_if<IndexExpr>(&expr)) {
-        check_mutation(program_, idx->object, find_symbol, report_error);
     }
 }
 
@@ -445,9 +478,7 @@ static void check_mutation(Program& program_, ExprHandle handle,
 void SemanticAnalyzer::visit(const BinaryExpr& expr) {
     if (expr.op == TokenType::EQUAL || expr.op == TokenType::PLUS_EQUAL || expr.op == TokenType::MINUS_EQUAL ||
         expr.op == TokenType::STAR_EQUAL || expr.op == TokenType::SLASH_EQUAL) {
-        check_mutation(program_, expr.left,
-            [this](Str name) { return find_symbol(name); },
-            [this](const std::string& msg) { report_error(msg); });
+        check_mutation(expr.left);
     }
 
     if (!expr.left.is_null()) visit_expr(program_.expressions[expr.left.index], this);
@@ -879,7 +910,21 @@ void SemanticAnalyzer::visit(const MemberExpr& expr) {
         }
         
         if (!obj_type.is_null()) {
-            auto& type = program_.types[obj_type.index];
+            TypeHandle effective_type = obj_type;
+            auto* t_ptr = &program_.types[effective_type.index];
+            while (true) {
+                if (auto* ptr = std::get_if<PointerType>(t_ptr)) {
+                    effective_type = ptr->base;
+                    t_ptr = &program_.types[effective_type.index];
+                } else if (auto* ref = std::get_if<ReferenceType>(t_ptr)) {
+                    effective_type = ref->base;
+                    t_ptr = &program_.types[effective_type.index];
+                } else {
+                    break;
+                }
+            }
+            
+            auto& type = *t_ptr;
             if (std::get_if<OptionalType>(&type)) {
                 report_error("Cannot access member of optional type directly, use '?' to unwrap");
             } else if (std::get_if<TupleType>(&type)) {
@@ -1059,6 +1104,43 @@ void SemanticAnalyzer::visit(const SliceExpr& expr) {
 
 void SemanticAnalyzer::visit(const AddressOfExpr& expr) {
     if (!expr.operand.is_null()) visit_expr(program_.expressions[expr.operand.index], this);
+    TypeHandle op_type = current_expr_type_;
+    if (!op_type.is_null()) {
+        auto& t = program_.types[op_type.index];
+        if (auto* arr = std::get_if<ArrayType>(&t)) {
+            PointerType ptr{arr->element};
+            program_.types.push_back(ptr);
+            current_expr_type_ = TypeHandle(static_cast<uint32_t>(program_.types.size() - 1));
+        } else {
+            PointerType ptr{op_type};
+            program_.types.push_back(ptr);
+            current_expr_type_ = TypeHandle(static_cast<uint32_t>(program_.types.size() - 1));
+        }
+    }
+}
+
+void SemanticAnalyzer::visit(const DereferenceExpr& expr) {
+    if (!expr.pointer.is_null()) visit_expr(program_.expressions[expr.pointer.index], this);
+    TypeHandle op_type = current_expr_type_;
+    if (!op_type.is_null()) {
+        auto& t = program_.types[op_type.index];
+        if (auto* ptr = std::get_if<PointerType>(&t)) {
+            current_expr_type_ = ptr->base;
+        } else {
+            report_error("Cannot dereference non-pointer type");
+            current_expr_type_ = TypeHandle(0);
+        }
+    }
+}
+
+void SemanticAnalyzer::visit(const RefExpr& expr) {
+    if (!expr.operand.is_null()) visit_expr(program_.expressions[expr.operand.index], this);
+    TypeHandle op_type = current_expr_type_;
+    if (!op_type.is_null()) {
+        ReferenceType ref{op_type};
+        program_.types.push_back(ref);
+        current_expr_type_ = TypeHandle(static_cast<uint32_t>(program_.types.size() - 1));
+    }
 }
 
 void SemanticAnalyzer::visit(const ArrayLiteralExpr& expr) {

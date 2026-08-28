@@ -99,4 +99,21 @@ package illegal_tests {
         x.has(1, 2); // Error: expected 1 arg
     }
 }
-
+
+struct IllegalNode { val: i32; }
+
+// Illegal pointer and reference operations
+invalid_ptrs_and_refs: () -> void {
+    x : i32 = 2;
+    y : &i32 = ref x;
+    y = 5; // cannot mutate through reference
+    
+    n := IllegalNode{1};
+    n_ref := ref n;
+    n_ref.val = 2; // cannot mutate through reference member
+    
+    const cp := @x;
+    cp = @x; // cannot mutate const pointer
+    
+    *x; // Cannot dereference non-pointer
+}

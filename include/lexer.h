@@ -44,6 +44,7 @@ enum class TokenType {
     TYPEOF,         // typeof
     SIZEOF,         // sizeof
     OR,             // or (optional default operator)
+    REF,            // ref (reference operator)
 
     // Primitive types
     I8, I16, I32, I64,
