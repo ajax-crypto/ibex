@@ -1,6 +1,6 @@
 // Compiler main entry point
 #include "lexer.h"
-#include "parser_new.h"
+#include "parser.h"
 #include "type_registry.h"
 #include "semantic_analyzer.h"
 #include <iostream>
@@ -60,7 +60,7 @@ int main(int argc, char* argv[]) {
     // Parsing
     ibex::Arena ast_arena;
     ibex::Program program(ast_arena);
-    ibex::ParserNew parser(tokens, program);
+    ibex::Parser parser(tokens, program);
     auto ast = parser.parse_program();
 
     if (!parser.get_errors().empty()) {

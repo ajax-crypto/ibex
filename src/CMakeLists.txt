@@ -1,6 +1,6 @@
 add_library(ibex_compiler
     lexer.cpp
-    parser_new.cpp
+    parser.cpp
     type_registry.cpp
     node_registry.cpp
     semantic_analyzer.cpp

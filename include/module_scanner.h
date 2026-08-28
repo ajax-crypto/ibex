@@ -1,7 +1,7 @@
 #pragma once
 
 #include "lexer.h"
-#include "parser_new.h"
+#include "parser.h"
 #include "const_eval.h"
 #include <string>
 #include <vector>

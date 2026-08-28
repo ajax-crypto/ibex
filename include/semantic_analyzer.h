@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ast_new.h"
+#include "ast.h"
 #include "ast_visitor.h"
 #include "type_registry.h"
 #include <vector>

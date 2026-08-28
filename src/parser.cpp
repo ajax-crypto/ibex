@@ -1,23 +1,23 @@
-#include "parser_new.h"
+#include "parser.h"
 #include <iostream>
 #include <cctype>
 #include <algorithm>
 
 namespace ibex {
 
-ParserNew::ParserNew(const std::vector<Token>& tokens, Program& program)
+Parser::Parser(const std::vector<Token>& tokens, Program& program)
     : tokens_(tokens), program_(program) {}
 
 // ============================================================================
 // HELPERS
 // ============================================================================
 
-bool ParserNew::check(TokenType type) const {
+bool Parser::check(TokenType type) const {
     if (is_at_end()) return false;
     return current().type == type;
 }
 
-bool ParserNew::match(TokenType type) {
+bool Parser::match(TokenType type) {
     if (check(type)) {
         advance();
         return true;
@@ -25,7 +25,7 @@ bool ParserNew::match(TokenType type) {
     return false;
 }
 
-bool ParserNew::match_any(std::span<const TokenType> types) {
+bool Parser::match_any(std::span<const TokenType> types) {
     for (TokenType type : types) {
         if (check(type)) {
             advance();
@@ -35,21 +35,21 @@ bool ParserNew::match_any(std::span<const TokenType> types) {
     return false;
 }
 
-Token ParserNew::current() const {
+Token Parser::current() const {
     if (current_ >= tokens_.size()) {
         return tokens_.back();  // Return EOF
     }
     return tokens_[current_];
 }
 
-Token ParserNew::peek() const {
+Token Parser::peek() const {
     if (current_ + 1 >= tokens_.size()) {
         return tokens_.back();  // Return EOF
     }
     return tokens_[current_ + 1];
 }
 
-Token ParserNew::advance() {
+Token Parser::advance() {
     if (!is_at_end()) {
         current_++;
     }
@@ -57,22 +57,22 @@ Token ParserNew::advance() {
     return tokens_[current_ - 1];
 }
 
-void ParserNew::error(std::string_view message) {
+void Parser::error(std::string_view message) {
     Token t = current();
     std::string err_msg = "Line " + std::to_string(t.line) + ": " + std::string(message);
     errors_.push_back(err_msg);
 }
 
-bool ParserNew::is_at_end() const {
+bool Parser::is_at_end() const {
     return current().type == TokenType::EOF_TOKEN;
 }
 
-bool ParserNew::is_type_keyword() const {
+bool Parser::is_type_keyword() const {
     return is_primitive_type() || check(TokenType::IDENTIFIER) ||
            check(TokenType::STRUCT);
 }
 
-bool ParserNew::is_primitive_type() const {
+bool Parser::is_primitive_type() const {
     TokenType type = current().type;
     return type == TokenType::I8 || type == TokenType::I16 ||
            type == TokenType::I32 || type == TokenType::I64 ||
@@ -89,7 +89,7 @@ bool ParserNew::is_primitive_type() const {
 // PROGRAM PARSING
 // ============================================================================
 
-std::vector<DeclHandle> ParserNew::parse_program() {
+std::vector<DeclHandle> Parser::parse_program() {
     std::vector<DeclHandle> declarations;
 
     while (!is_at_end()) {
@@ -111,7 +111,7 @@ std::vector<DeclHandle> ParserNew::parse_program() {
 // ATTRIBUTES
 // ============================================================================
 
-std::span<Attribute> ParserNew::parse_attributes() {
+std::span<Attribute> Parser::parse_attributes() {
     std::vector<Attribute> attrs;
     while (match(TokenType::LBRACKET_LBRACKET)) {
         if (match(TokenType::RBRACKET_RBRACKET)) continue;
@@ -145,7 +145,7 @@ std::span<Attribute> ParserNew::parse_attributes() {
     return program_.allocate_array(attrs);
 }
 
-bool ParserNew::evaluate_platform_attribute(std::span<Attribute> attrs) {
+bool Parser::evaluate_platform_attribute(std::span<Attribute> attrs) {
     std::string_view target_platform = "win32";
     
     for (const auto& attr : attrs) {
@@ -165,7 +165,7 @@ bool ParserNew::evaluate_platform_attribute(std::span<Attribute> attrs) {
     return true;
 }
 
-void ParserNew::skip_balanced_block() {
+void Parser::skip_balanced_block() {
     int brace_count = 0;
     if (match(TokenType::LBRACE)) {
         brace_count = 1;
@@ -188,7 +188,7 @@ void ParserNew::skip_balanced_block() {
 // DECLARATIONS
 // ============================================================================
 
-DeclHandle ParserNew::parse_declaration() {
+DeclHandle Parser::parse_declaration() {
     auto attrs = parse_attributes();
     
     while (!evaluate_platform_attribute(attrs)) {
@@ -251,7 +251,7 @@ DeclHandle ParserNew::parse_declaration() {
     return parse_variable_decl(false, false, attrs);
 }
 
-DeclHandle ParserNew::parse_function_decl(std::span<Attribute> attrs) {
+DeclHandle Parser::parse_function_decl(std::span<Attribute> attrs) {
     if (!check(TokenType::IDENTIFIER)) {
         error("Expected function name");
         return DeclHandle();
@@ -325,7 +325,7 @@ DeclHandle ParserNew::parse_function_decl(std::span<Attribute> attrs) {
     return store_decl(func);
 }
 
-DeclHandle ParserNew::parse_struct_decl(std::span<Attribute> attrs) {
+DeclHandle Parser::parse_struct_decl(std::span<Attribute> attrs) {
     if (!check(TokenType::IDENTIFIER)) {
         error("Expected struct name");
         return DeclHandle();
@@ -411,7 +411,7 @@ DeclHandle ParserNew::parse_struct_decl(std::span<Attribute> attrs) {
     return store_decl(decl);
 }
 
-DeclHandle ParserNew::parse_package_decl(std::span<Attribute> attrs) {
+DeclHandle Parser::parse_package_decl(std::span<Attribute> attrs) {
     if (!check(TokenType::IDENTIFIER)) {
         error("Expected package name");
         return DeclHandle();
@@ -443,7 +443,7 @@ DeclHandle ParserNew::parse_package_decl(std::span<Attribute> attrs) {
     return store_decl(decl);
 }
 
-DeclHandle ParserNew::parse_module_decl(std::span<Attribute> attrs) {
+DeclHandle Parser::parse_module_decl(std::span<Attribute> attrs) {
     if (!check(TokenType::IDENTIFIER)) {
         error("Expected module name");
         return DeclHandle();
@@ -486,7 +486,7 @@ DeclHandle ParserNew::parse_module_decl(std::span<Attribute> attrs) {
     return store_decl(decl);
 }
 
-DeclHandle ParserNew::parse_export_packages_decl(std::span<Attribute> attrs) {
+DeclHandle Parser::parse_export_packages_decl(std::span<Attribute> attrs) {
     std::vector<Str> package_names;
     do {
         if (!check(TokenType::IDENTIFIER)) {
@@ -514,7 +514,7 @@ DeclHandle ParserNew::parse_export_packages_decl(std::span<Attribute> attrs) {
     return store_decl(decl);
 }
 
-DeclHandle ParserNew::parse_import_decl(std::span<Attribute> attrs) {
+DeclHandle Parser::parse_import_decl(std::span<Attribute> attrs) {
     if (!check(TokenType::IDENTIFIER)) {
         error("Expected module name in import");
         return DeclHandle();
@@ -575,7 +575,7 @@ DeclHandle ParserNew::parse_import_decl(std::span<Attribute> attrs) {
 
 
 
-DeclHandle ParserNew::parse_enum_decl(std::span<Attribute> attrs) {
+DeclHandle Parser::parse_enum_decl(std::span<Attribute> attrs) {
     if (!check(TokenType::IDENTIFIER)) {
         error("Expected enum name");
         return DeclHandle();
@@ -655,7 +655,7 @@ DeclHandle ParserNew::parse_enum_decl(std::span<Attribute> attrs) {
     return store_decl(decl);
 }
 
-DeclHandle ParserNew::parse_flag_decl(std::span<Attribute> attrs) {
+DeclHandle Parser::parse_flag_decl(std::span<Attribute> attrs) {
     if (!check(TokenType::IDENTIFIER)) {
         error("Expected flag name");
         return DeclHandle();
@@ -726,7 +726,7 @@ DeclHandle ParserNew::parse_flag_decl(std::span<Attribute> attrs) {
     return store_decl(decl);
 }
 
-DeclHandle ParserNew::parse_using_decl(std::span<Attribute> attrs) {
+DeclHandle Parser::parse_using_decl(std::span<Attribute> attrs) {
     if (!check(TokenType::IDENTIFIER)) {
         error("Expected name after 'using'");
         return DeclHandle();
@@ -814,7 +814,7 @@ DeclHandle ParserNew::parse_using_decl(std::span<Attribute> attrs) {
     return DeclHandle();
 }
 
-DeclHandle ParserNew::parse_variable_decl(bool is_const, bool is_static, std::span<Attribute> attrs) {
+DeclHandle Parser::parse_variable_decl(bool is_const, bool is_static, std::span<Attribute> attrs) {
     if (!check(TokenType::IDENTIFIER)) {
         error("Expected variable name, got token " + std::string(current().lexeme.data(), current().lexeme.size()));
         return DeclHandle();
@@ -862,7 +862,7 @@ DeclHandle ParserNew::parse_variable_decl(bool is_const, bool is_static, std::sp
     return store_decl(decl);
 }
 
-std::vector<FunctionParameter> ParserNew::parse_parameter_list() {
+std::vector<FunctionParameter> Parser::parse_parameter_list() {
     std::vector<FunctionParameter> params;
 
     while (!check(TokenType::RPAREN)) {
@@ -914,7 +914,7 @@ std::vector<FunctionParameter> ParserNew::parse_parameter_list() {
 // STATEMENTS
 // ============================================================================
 
-StmtHandle ParserNew::parse_statement(std::span<Attribute> attrs) {
+StmtHandle Parser::parse_statement(std::span<Attribute> attrs) {
     if (attrs.empty()) attrs = parse_attributes();
     
     if (!evaluate_platform_attribute(attrs)) {
@@ -997,7 +997,7 @@ StmtHandle ParserNew::parse_statement(std::span<Attribute> attrs) {
     return parse_expression_statement();
 }
 
-StmtHandle ParserNew::parse_block_statement(std::span<Attribute> attrs) {
+StmtHandle Parser::parse_block_statement(std::span<Attribute> attrs) {
     std::vector<StmtHandle> stmts;
 
     while (!check(TokenType::RBRACE) && !is_at_end()) {
@@ -1023,7 +1023,7 @@ StmtHandle ParserNew::parse_block_statement(std::span<Attribute> attrs) {
     return store_stmt(BlockStmt{.attributes = attrs, .statements = stmts_span});
 }
 
-StmtHandle ParserNew::parse_return_statement() {
+StmtHandle Parser::parse_return_statement() {
     std::optional<ExprHandle> value;
     
     if (!check(TokenType::SEMICOLON)) {
@@ -1037,7 +1037,7 @@ StmtHandle ParserNew::parse_return_statement() {
     return store_stmt(ReturnStmt{value});
 }
 
-StmtHandle ParserNew::parse_if_statement(std::span<Attribute> attrs) {
+StmtHandle Parser::parse_if_statement(std::span<Attribute> attrs) {
     if (check(TokenType::LBRACKET_LBRACKET)) {
         // Compile-time if based on attributes!
         auto cond_attrs = parse_attributes();
@@ -1131,7 +1131,7 @@ StmtHandle ParserNew::parse_if_statement(std::span<Attribute> attrs) {
     return store_stmt(if_stmt);
 }
 
-StmtHandle ParserNew::parse_while_statement(std::span<Attribute> attrs) {
+StmtHandle Parser::parse_while_statement(std::span<Attribute> attrs) {
     bool old_allow = allow_struct_init_;
     allow_struct_init_ = false;
     auto condition = parse_expression();
@@ -1156,7 +1156,7 @@ StmtHandle ParserNew::parse_while_statement(std::span<Attribute> attrs) {
     return store_stmt(stmt);
 }
 
-StmtHandle ParserNew::parse_for_statement(std::span<Attribute> attrs) {
+StmtHandle Parser::parse_for_statement(std::span<Attribute> attrs) {
     ForStmt stmt;
     stmt.attributes = attrs;
     stmt.is_c_style = false;
@@ -1251,7 +1251,7 @@ StmtHandle ParserNew::parse_for_statement(std::span<Attribute> attrs) {
     return store_stmt(stmt);
 }
 
-StmtHandle ParserNew::parse_switch_statement(std::span<Attribute> attrs) {
+StmtHandle Parser::parse_switch_statement(std::span<Attribute> attrs) {
     if (!match(TokenType::LPAREN)) {
         error("Expected '(' after 'switch'");
         return StmtHandle();
@@ -1316,7 +1316,7 @@ StmtHandle ParserNew::parse_switch_statement(std::span<Attribute> attrs) {
     std::span<CaseItem> cases_span = program_.allocate_array(cases);
     return store_stmt(SwitchStmt{.attributes = attrs, .target = target, .cases = cases_span});
 }
-StmtHandle ParserNew::parse_var_decl_statement(bool is_const, bool is_static, std::span<Attribute> attrs) {
+StmtHandle Parser::parse_var_decl_statement(bool is_const, bool is_static, std::span<Attribute> attrs) {
     auto decl_handle = parse_variable_decl(is_const, is_static, attrs);
     
     if (decl_handle.is_null()) {
@@ -1338,7 +1338,7 @@ StmtHandle ParserNew::parse_var_decl_statement(bool is_const, bool is_static, st
     return StmtHandle();
 }
 
-StmtHandle ParserNew::parse_expression_statement() {
+StmtHandle Parser::parse_expression_statement() {
     auto expr = parse_expression();
     
     if (expr.is_null()) {
@@ -1359,11 +1359,11 @@ StmtHandle ParserNew::parse_expression_statement() {
 // EXPRESSIONS
 // ============================================================================
 
-ExprHandle ParserNew::parse_expression() {
+ExprHandle Parser::parse_expression() {
     return parse_assignment();
 }
 
-ExprHandle ParserNew::parse_assignment() {
+ExprHandle Parser::parse_assignment() {
     auto expr = parse_null_coalesce();
     
     TokenType op = current().type;
@@ -1379,7 +1379,7 @@ ExprHandle ParserNew::parse_assignment() {
     return expr;
 }
 
-ExprHandle ParserNew::parse_null_coalesce() {
+ExprHandle Parser::parse_null_coalesce() {
     auto left = parse_logical_or();
     
     while (match(TokenType::OR)) {
@@ -1391,7 +1391,7 @@ ExprHandle ParserNew::parse_null_coalesce() {
     return left;
 }
 
-ExprHandle ParserNew::parse_logical_or() {
+ExprHandle Parser::parse_logical_or() {
     auto left = parse_logical_and();
     
     while (match(TokenType::PIPE_PIPE)) {
@@ -1403,7 +1403,7 @@ ExprHandle ParserNew::parse_logical_or() {
     return left;
 }
 
-ExprHandle ParserNew::parse_logical_and() {
+ExprHandle Parser::parse_logical_and() {
     auto left = parse_bitwise_or();
     
     while (match(TokenType::AMPERSAND_AMPERSAND)) {
@@ -1415,7 +1415,7 @@ ExprHandle ParserNew::parse_logical_and() {
     return left;
 }
 
-ExprHandle ParserNew::parse_bitwise_or() {
+ExprHandle Parser::parse_bitwise_or() {
     auto left = parse_bitwise_xor();
     
     while (match(TokenType::PIPE)) {
@@ -1427,7 +1427,7 @@ ExprHandle ParserNew::parse_bitwise_or() {
     return left;
 }
 
-ExprHandle ParserNew::parse_bitwise_xor() {
+ExprHandle Parser::parse_bitwise_xor() {
     auto left = parse_bitwise_and();
     
     while (match(TokenType::CARET)) {
@@ -1439,7 +1439,7 @@ ExprHandle ParserNew::parse_bitwise_xor() {
     return left;
 }
 
-ExprHandle ParserNew::parse_bitwise_and() {
+ExprHandle Parser::parse_bitwise_and() {
     auto left = parse_equality();
     
     while (match(TokenType::AMPERSAND)) {
@@ -1451,7 +1451,7 @@ ExprHandle ParserNew::parse_bitwise_and() {
     return left;
 }
 
-ExprHandle ParserNew::parse_equality() {
+ExprHandle Parser::parse_equality() {
     auto left = parse_comparison();
     
     while (match(TokenType::EQ_EQ) || match(TokenType::NOT_EQ)) {
@@ -1464,7 +1464,7 @@ ExprHandle ParserNew::parse_equality() {
     return left;
 }
 
-ExprHandle ParserNew::parse_comparison() {
+ExprHandle Parser::parse_comparison() {
     auto left = parse_range();
     
     while (match(TokenType::LESS) || match(TokenType::GREATER) ||
@@ -1479,7 +1479,7 @@ ExprHandle ParserNew::parse_comparison() {
     return left;
 }
 
-ExprHandle ParserNew::parse_range() {
+ExprHandle Parser::parse_range() {
     auto left = parse_shift();
     
     if (match(TokenType::RANGE_OP)) {
@@ -1491,7 +1491,7 @@ ExprHandle ParserNew::parse_range() {
     return left;
 }
 
-ExprHandle ParserNew::parse_shift() {
+ExprHandle Parser::parse_shift() {
     auto left = parse_addition();
     
     while (match(TokenType::LSHIFT) || match(TokenType::RSHIFT)) {
@@ -1504,7 +1504,7 @@ ExprHandle ParserNew::parse_shift() {
     return left;
 }
 
-ExprHandle ParserNew::parse_addition() {
+ExprHandle Parser::parse_addition() {
     auto left = parse_multiplication();
     
     while (match(TokenType::PLUS) || match(TokenType::MINUS)) {
@@ -1517,7 +1517,7 @@ ExprHandle ParserNew::parse_addition() {
     return left;
 }
 
-ExprHandle ParserNew::parse_multiplication() {
+ExprHandle Parser::parse_multiplication() {
     auto left = parse_unary();
     
     while (match(TokenType::STAR) || match(TokenType::SLASH) || match(TokenType::PERCENT)) {
@@ -1530,7 +1530,7 @@ ExprHandle ParserNew::parse_multiplication() {
     return left;
 }
 
-ExprHandle ParserNew::parse_unary() {
+ExprHandle Parser::parse_unary() {
     if (match(TokenType::REF)) {
         auto operand = parse_unary();
         RefExpr ref_expr{operand};
@@ -1554,7 +1554,7 @@ ExprHandle ParserNew::parse_unary() {
     return parse_postfix();
 }
 
-ExprHandle ParserNew::parse_postfix() {
+ExprHandle Parser::parse_postfix() {
     auto expr = parse_primary();
     
     while (true) {
@@ -1737,7 +1737,7 @@ ExprHandle ParserNew::parse_postfix() {
     return expr;
 }
 
-ExprHandle ParserNew::parse_sizeof_expr() {
+ExprHandle Parser::parse_sizeof_expr() {
     if (!match(TokenType::LPAREN)) {
         error("Expected '(' after 'sizeof'");
         return ExprHandle();
@@ -1776,7 +1776,7 @@ ExprHandle ParserNew::parse_sizeof_expr() {
     return store_expr(sizeof_expr);
 }
 
-ExprHandle ParserNew::parse_primary() {
+ExprHandle Parser::parse_primary() {
     if (match(TokenType::SIZEOF)) {
         return parse_sizeof_expr();
     }
@@ -2080,7 +2080,7 @@ ExprHandle ParserNew::parse_primary() {
     return ExprHandle();
 }
 
-ExprHandle ParserNew::parse_lambda_expr() {
+ExprHandle Parser::parse_lambda_expr() {
     if (!match(TokenType::LPAREN)) {
         error("Expected '(' for lambda parameters");
         return ExprHandle();
@@ -2163,7 +2163,7 @@ ExprHandle ParserNew::parse_lambda_expr() {
 // TYPES
 // ============================================================================
 
-TypeHandle ParserNew::parse_type() {
+TypeHandle Parser::parse_type() {
     TypeHandle base_type;
     
     // Handle function types: (T1, T2) -> RetType, or Tuple types: (T1, T2)
@@ -2292,7 +2292,7 @@ TypeHandle ParserNew::parse_type() {
     return base_type;
 }
 
-TypeHandle ParserNew::parse_typeof_type() {
+TypeHandle Parser::parse_typeof_type() {
     if (!match(TokenType::LPAREN)) {
         error("Expected '(' after 'typeof'");
         return TypeHandle();
@@ -2306,7 +2306,7 @@ TypeHandle ParserNew::parse_typeof_type() {
     return store_type(t);
 }
 
-TypeHandle ParserNew::parse_base_type() {
+TypeHandle Parser::parse_base_type() {
     if (match(TokenType::TYPEOF)) {
         return parse_typeof_type();
     }

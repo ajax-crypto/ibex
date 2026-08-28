@@ -1,7 +1,7 @@
 #include "module_scanner.h"
 #include <iostream>
 #include <cassert>
-#include "parser_new.h"
+#include "parser.h"
 #include "lexer.h"
 #include "semantic_analyzer.h"
 #include "type_registry.h"
@@ -108,7 +108,7 @@ int main(int argc, char** argv) {
 
     std::cerr << "Parsing...\n" << std::flush;
 
-    ibex::ParserNew parser(tokens, program);
+    ibex::Parser parser(tokens, program);
     parser.parse_program();
     
     if (parser.has_errors()) {

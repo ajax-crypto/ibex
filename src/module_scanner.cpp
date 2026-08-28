@@ -67,7 +67,7 @@ bool ModuleScanner::parse_module_file(const std::filesystem::path& path, ModuleI
     Lexer lexer(source);
     std::vector<Token> tokens = lexer.tokenize();
 
-    ParserNew parser(tokens, program_);
+    Parser parser(tokens, program_);
     std::vector<DeclHandle> decls = parser.parse_program();
 
     if (parser.has_errors()) {

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "lexer.h"
-#include "ast_new.h"
+#include "ast.h"
 #include "arena.h"
 #include "str.h"
 
@@ -11,9 +11,9 @@
 namespace ibex {
 
 // High-performance parser using arena allocator and discriminated unions
-class ParserNew {
+class Parser {
 public:
-    explicit ParserNew(const std::vector<Token>& tokens, Program& program);
+    explicit Parser(const std::vector<Token>& tokens, Program& program);
 
     // Parse a complete program
     std::vector<DeclHandle> parse_program();
