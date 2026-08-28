@@ -109,8 +109,13 @@ struct VariantType {
     std::vector<TypeHandle> types;
 };
 
+// Range type: start..end
+struct RangeType {
+    TypeHandle base_type;
+};
+
 // Type discriminated union
-using Type = std::variant<PrimitiveType, PointerType, ReferenceType, ArrayType, SliceType, NamedType, TypeofType, FunctionType, TupleType, OptionalType, VariantType>;
+using Type = std::variant<PrimitiveType, PointerType, ReferenceType, ArrayType, SliceType, NamedType, TypeofType, FunctionType, TupleType, OptionalType, VariantType, RangeType>;
 
 // ============================================================================
 // EXPRESSIONS - Discriminated union for expressions
@@ -281,6 +286,12 @@ struct UnwrapExpr {
     ExprHandle operand;
 };
 
+// Range expression: start..end
+struct RangeExpr {
+    ExprHandle start;
+    ExprHandle end;
+};
+
 // Expression discriminated union
 using Expr = std::variant<
     BinaryExpr,
@@ -305,7 +316,8 @@ using Expr = std::variant<
     TupleExpr,
     UnwrapExpr,
     DereferenceExpr,
-    RefExpr
+    RefExpr,
+    RangeExpr
 >;
 
 // ============================================================================
@@ -369,6 +381,18 @@ struct ConstModifierStmt {
     std::span<Str> variables;
 };
 
+struct CaseItem {
+    std::optional<ExprHandle> value;     // null means default
+    std::optional<ExprHandle> end_value; // for range, e.g. 1..3 (inclusive)
+    StmtHandle body;
+};
+
+struct SwitchStmt {
+    std::span<Attribute> attributes;
+    ExprHandle target;
+    std::span<CaseItem> cases;
+};
+
 // Statement discriminated union
 using Stmt = std::variant<
     BlockStmt,
@@ -376,6 +400,7 @@ using Stmt = std::variant<
     IfStmt,
     WhileStmt,
     ForStmt,
+    SwitchStmt,
     BreakStmt,
     ContinueStmt,
     ExprStmt,

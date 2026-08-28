@@ -61,6 +61,7 @@ public:
     void visit(const TupleType& type) override;
     void visit(const OptionalType& type) override;
     void visit(const VariantType& type) override;
+    void visit(const RangeType& type) override;
 
     // ExprVisitor
     void visit(const BinaryExpr& expr) override;
@@ -86,6 +87,7 @@ public:
     void visit(const UnwrapExpr& expr) override;
     void visit(const DereferenceExpr& expr) override;
     void visit(const RefExpr& expr) override;
+    void visit(const RangeExpr& expr) override;
 
     // StmtVisitor
     void visit(const BlockStmt& stmt) override;
@@ -93,6 +95,7 @@ public:
     void visit(const IfStmt& stmt) override;
     void visit(const WhileStmt& stmt) override;
     void visit(const ForStmt& stmt) override;
+    void visit(const SwitchStmt& stmt) override;
     void visit(const BreakStmt& stmt) override;
     void visit(const ContinueStmt& stmt) override;
     void visit(const ExprStmt& stmt) override;

@@ -111,6 +111,7 @@ private:
     StmtHandle parse_if_statement(std::span<Attribute> attrs = {});
     StmtHandle parse_while_statement(std::span<Attribute> attrs = {});
     StmtHandle parse_for_statement(std::span<Attribute> attrs = {});
+    StmtHandle parse_switch_statement(std::span<Attribute> attrs = {});
     StmtHandle parse_var_decl_statement(bool is_const = false, bool is_static = false, std::span<Attribute> attrs = {});
     StmtHandle parse_expression_statement();
 
@@ -129,6 +130,7 @@ private:
     ExprHandle parse_bitwise_and();
     ExprHandle parse_equality();
     ExprHandle parse_comparison();
+    ExprHandle parse_range();
     ExprHandle parse_shift();
     ExprHandle parse_addition();
     ExprHandle parse_multiplication();

@@ -20,7 +20,7 @@ struct Derived : Base { [[offset(4)]] y: i32; }
 
 // 3. Flags and Enums
 flag Permissions { Read, Write, Execute }
-flag ExtPerms : Permissions { Admin = Read or Write }
+flag ExtPerms : Permissions { Admin = Read | Write }
 
 enum Colors { Red = 1, Green = 2, Blue = 3 }
 enum MoreColors : Colors { Yellow }
@@ -72,8 +72,8 @@ unary_test: () -> i32 {
 // 15. Pointer operations
 ptr_test: (p: *i32) -> i32 {
     a := *p;
-    b := &a;
-    return *b;
+    b := ref a;
+    return b;
 }
 
 // 16. Alloc and Free
@@ -182,10 +182,10 @@ trailing_struct: () -> void {
 flag CombinedFlags {
     A = 1,
     B = 2,
-    C = A or B,
-    D = A and B,
-    E = A xor B,
-    F = complement A
+    C = A | B,
+    D = A & B,
+    E = A ^ B,
+    F = ~A
 }
 
 // 34. Mixed designated and positional struct init
@@ -324,3 +324,4 @@ static_x := 5;
 valid_escape: () -> &i32 {
     return ref static_x; // legal: static_x has depth 0
 }
+

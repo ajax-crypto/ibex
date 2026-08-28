@@ -136,3 +136,20 @@ escape_assignment: () -> void {
         x = ref y; // illegal: y outlives x
     }
 }
+
+enum SwitchEnum { A, B, C }
+test_bad_switch: () -> void {
+    x := SwitchEnum.A;
+    switch (x) {
+        case SwitchEnum.A: {}
+        case 1: {} // Type mismatch
+    }
+    
+    y := 5;
+    switch (y) {
+        case 1..SwitchEnum.A: {} // Type mismatch in range
+    }
+    
+    // Standalone range mismatch
+    bad_range := if y in 1..SwitchEnum.A { 1 } else { 0 };
+}

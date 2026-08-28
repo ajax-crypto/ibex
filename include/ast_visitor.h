@@ -26,6 +26,7 @@ public:
     virtual void visit(const TupleType& type) = 0;
     virtual void visit(const OptionalType& type) = 0;
     virtual void visit(const VariantType& type) = 0;
+    virtual void visit(const RangeType& type) = 0;
 };
 
 inline void visit_type(const Type& type, TypeVisitor* visitor) {
@@ -60,6 +61,7 @@ public:
     virtual void visit(const UnwrapExpr& expr) = 0;
     virtual void visit(const DereferenceExpr& expr) = 0;
     virtual void visit(const RefExpr& expr) = 0;
+    virtual void visit(const RangeExpr& expr) = 0;
 };
 
 inline void visit_expr(const Expr& expr, ExprVisitor* visitor) {
@@ -76,6 +78,7 @@ public:
     virtual void visit(const IfStmt& stmt) = 0;
     virtual void visit(const WhileStmt& stmt) = 0;
     virtual void visit(const ForStmt& stmt) = 0;
+    virtual void visit(const SwitchStmt& stmt) = 0;
     virtual void visit(const BreakStmt& stmt) = 0;
     virtual void visit(const ContinueStmt& stmt) = 0;
     virtual void visit(const ExprStmt& stmt) = 0;

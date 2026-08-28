@@ -10,7 +10,7 @@ package test_fns {
         return cb(a, b);
     }
 
-    process_data : (data: [:u8], cb: (i32) -> bool) -> bool {
+    process_data : (data: [:]u8, cb: (i32) -> bool) -> bool {
         const size := sizeof(data);
         return cb(size as i32);
     }
@@ -112,3 +112,4 @@ package binding_tests {
         // no return needed for void functions
     }
 }
+

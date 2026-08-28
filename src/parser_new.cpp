@@ -466,7 +466,7 @@ DeclHandle ParserNew::parse_module_decl(std::span<Attribute> attrs) {
                     return DeclHandle();
                 }
 
-                TypeHandle param_type = parse_type();
+                TypeHandle param_type = parse_type(); std::cout << "DEBUG parse_parameter_list param_type=" << param_type.index << "\\n";
                 parameters.push_back(ModuleParam{param_name, param_type});
             } while (match(TokenType::COMMA));
         }
@@ -816,7 +816,7 @@ DeclHandle ParserNew::parse_using_decl(std::span<Attribute> attrs) {
 
 DeclHandle ParserNew::parse_variable_decl(bool is_const, bool is_static, std::span<Attribute> attrs) {
     if (!check(TokenType::IDENTIFIER)) {
-        error("Expected variable name");
+        error("Expected variable name, got token " + std::string(current().lexeme.data(), current().lexeme.size()));
         return DeclHandle();
     }
 
@@ -883,7 +883,7 @@ std::vector<FunctionParameter> ParserNew::parse_parameter_list() {
             return params;
         }
 
-        TypeHandle param_type = parse_type();
+        TypeHandle param_type = parse_type(); std::cout << "DEBUG parse_parameter_list param_type=" << param_type.index << "\\n";
 
         std::optional<ExprHandle> default_value;
         if (match(TokenType::LBRACE)) {
@@ -927,6 +927,7 @@ StmtHandle ParserNew::parse_statement(std::span<Attribute> attrs) {
     if (match(TokenType::IF)) return parse_if_statement(attrs);
     if (match(TokenType::WHILE)) return parse_while_statement(attrs);
     if (match(TokenType::FOR)) return parse_for_statement(attrs);
+    if (match(TokenType::SWITCH)) return parse_switch_statement(attrs);
     
     if (match(TokenType::BREAK)) {
         if (!match(TokenType::SEMICOLON)) error("Expected ';' after break");
@@ -1194,6 +1195,71 @@ StmtHandle ParserNew::parse_for_statement(std::span<Attribute> attrs) {
     return store_stmt(ForStmt{.attributes = attrs, .variable = loop_var, .range = range_expr, .body = body, .else_branch = else_branch});
 }
 
+StmtHandle ParserNew::parse_switch_statement(std::span<Attribute> attrs) {
+    if (!match(TokenType::LPAREN)) {
+        error("Expected '(' after 'switch'");
+        return StmtHandle();
+    }
+    ExprHandle target = parse_expression();
+    if (!match(TokenType::RPAREN)) {
+        error("Expected ')' after switch expression");
+    }
+
+    if (!match(TokenType::LBRACE)) {
+        error("Expected '{' before switch cases");
+        return StmtHandle();
+    }
+
+    std::vector<CaseItem> cases;
+
+    while (!check(TokenType::RBRACE) && !is_at_end()) {
+        if (match(TokenType::CASE)) {
+            ExprHandle start_val = parse_expression();
+            std::optional<ExprHandle> end_val;
+            
+            if (!start_val.is_null()) {
+                if (auto* range = std::get_if<RangeExpr>(&program_.expressions[start_val.index])) {
+                    end_val = range->end;
+                    start_val = range->start;
+                }
+            }
+            
+            StmtHandle body;
+            if (match(TokenType::COLON)) {
+                body = parse_statement();
+            } else if (match(TokenType::LBRACE)) {
+                body = parse_block_statement({});
+            } else {
+                error("Expected ':' or '{' after case value");
+                break;
+            }
+
+            cases.push_back(CaseItem{.value = start_val, .end_value = end_val, .body = body});
+        } else if (match(TokenType::DEFAULT_KW)) {
+            StmtHandle body;
+            if (match(TokenType::COLON)) {
+                body = parse_statement();
+            } else if (match(TokenType::LBRACE)) {
+                body = parse_block_statement({});
+            } else {
+                error("Expected ':' or '{' after default");
+                break;
+            }
+            
+            cases.push_back(CaseItem{.value = std::nullopt, .end_value = std::nullopt, .body = body});
+        } else {
+            error("Expected 'case' or 'default' inside switch");
+            break;
+        }
+    }
+
+    if (!match(TokenType::RBRACE)) {
+        error("Expected '}' after switch cases");
+    }
+
+    std::span<CaseItem> cases_span = program_.allocate_array(cases);
+    return store_stmt(SwitchStmt{.attributes = attrs, .target = target, .cases = cases_span});
+}
 StmtHandle ParserNew::parse_var_decl_statement(bool is_const, bool is_static, std::span<Attribute> attrs) {
     auto decl_handle = parse_variable_decl(is_const, is_static, attrs);
     
@@ -1343,14 +1409,27 @@ ExprHandle ParserNew::parse_equality() {
 }
 
 ExprHandle ParserNew::parse_comparison() {
-    auto left = parse_shift();
+    auto left = parse_range();
     
     while (match(TokenType::LESS) || match(TokenType::GREATER) ||
-           match(TokenType::LESS_EQ) || match(TokenType::GREATER_EQ)) {
+           match(TokenType::LESS_EQ) || match(TokenType::GREATER_EQ) ||
+           match(TokenType::IN)) {
         TokenType op = tokens_[current_ - 1].type;
-        auto right = parse_shift();
+        auto right = parse_range();
         BinaryExpr binop{left, op, right};
         left = store_expr(binop);
+    }
+    
+    return left;
+}
+
+ExprHandle ParserNew::parse_range() {
+    auto left = parse_shift();
+    
+    if (match(TokenType::RANGE_OP)) {
+        auto right = parse_shift();
+        RangeExpr range{left, right};
+        left = store_expr(range);
     }
     
     return left;
@@ -1963,7 +2042,7 @@ ExprHandle ParserNew::parse_lambda_expr() {
             error("Expected ':' after parameter name '" + name_tok.lexeme + "'");
             return ExprHandle();
         }
-        TypeHandle param_type = parse_type();
+        TypeHandle param_type = parse_type(); std::cout << "DEBUG parse_parameter_list param_type=" << param_type.index << "\\n";
         LambdaParam lp;
         lp.name = alloc_str(name_tok.lexeme);
         lp.type = param_type;
@@ -2203,3 +2282,10 @@ TypeHandle ParserNew::parse_base_type() {
 }
 
 }  // namespace ibex
+
+
+
+
+
+
+

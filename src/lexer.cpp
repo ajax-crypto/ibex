@@ -198,6 +198,9 @@ TokenType Lexer::keyword_type(std::string_view lexeme) {
         {"flag", TokenType::FLAG},
         {"using", TokenType::USING},
         {"return", TokenType::RETURN},
+        {"switch", TokenType::SWITCH},
+        {"case", TokenType::CASE},
+        {"default", TokenType::DEFAULT_KW},
         {"if", TokenType::IF},
         {"else", TokenType::ELSE},
         {"for", TokenType::FOR},
@@ -466,3 +469,4 @@ std::vector<Token> Lexer::tokenize() {
 }
 
 } // namespace ibex
+

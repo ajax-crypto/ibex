@@ -45,6 +45,9 @@ enum class TokenType {
     SIZEOF,         // sizeof
     OR,             // or (optional default operator)
     REF,            // ref (reference operator)
+    SWITCH,         // switch
+    CASE,           // case
+    DEFAULT_KW,     // default
 
     // Primitive types
     I8, I16, I32, I64,
@@ -189,3 +192,4 @@ private:
 };
 
 } // namespace ibex
+
