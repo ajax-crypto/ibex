@@ -175,4 +175,19 @@ infinite_loops: () -> void {
         y := 1; // i is never modified
     }
 }
+
+invalid_for_source: () -> void {
+    x := 10;
+    // Scalar target for range loop
+    for item in x {
+        y := item;
+    }
+    
+    // Struct target for range loop
+    MyStruct :: struct { a: i32 }
+    s := MyStruct { a: 1 };
+    for item in s {
+        y := item;
+    }
+}
 }

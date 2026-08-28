@@ -846,10 +846,12 @@ void SemanticAnalyzer::visit(const CallExpr& expr) {
                 }
             }
             
-            // If not provided, check if it's optional
+            // If not provided, check if it's optional or has a default value
             if (!provided) {
                 bool is_optional = false;
-                if (!param.type.is_null()) {
+                if (param.default_value.has_value()) {
+                    is_optional = true;
+                } else if (!param.type.is_null()) {
                     auto& p_type = program_.types[param.type.index];
                     if (std::holds_alternative<OptionalType>(p_type)) {
                         is_optional = true;
@@ -1260,9 +1262,20 @@ void SemanticAnalyzer::visit(const RefExpr& expr) {
 }
 
 void SemanticAnalyzer::visit(const ArrayLiteralExpr& expr) {
+    TypeHandle elem_type = TypeHandle{0};
     for (auto el : expr.elements) {
-        if (!el.is_null()) visit_expr(program_.expressions[el.index], this);
+        if (!el.is_null()) {
+            visit_expr(program_.expressions[el.index], this);
+            if (elem_type.is_null() || elem_type.index == 0) {
+                elem_type = current_expr_type_;
+            }
+        }
     }
+    ArrayType arr_type;
+    arr_type.element = elem_type;
+    arr_type.size = static_cast<uint32_t>(expr.elements.size());
+    program_.types.push_back(arr_type);
+    current_expr_type_ = TypeHandle{static_cast<uint32_t>(program_.types.size() - 1)};
 }
 
 void SemanticAnalyzer::visit(const StructInitExpr& expr) {
@@ -1633,6 +1646,8 @@ void SemanticAnalyzer::visit(const ForStmt& stmt) {
                     loop_var_type = sl->element;
                 } else if (std::holds_alternative<RangeExpr>(program_.expressions[stmt.range.value().index])) {
                     loop_var_type = range_type;
+                } else {
+                    report_error("For loop source must be an array, slice, or range expression");
                 }
             }
         }
@@ -2258,8 +2273,18 @@ void SemanticAnalyzer::visit(const SwitchStmt& stmt) {
         return false;
     };
     
-    if (!is_integer_type(program_, target_type) && !is_flag(target_type) && !is_enum(target_type)) {
-        report_error("Switch statement target must be an integer, flag or enum type");
+    auto is_string = [&](TypeHandle th) {
+        if (th.is_null()) return false;
+        auto& type = program_.types[th.index];
+        if (auto* named = std::get_if<NamedType>(&type)) {
+            std::string_view name(named->name.ptr(), named->name.len());
+            return name == "string" || name == "text";
+        }
+        return false;
+    };
+    
+    if (!is_integer_type(program_, target_type) && !is_flag(target_type) && !is_enum(target_type) && !is_string(target_type)) {
+        report_error("Switch statement target must be an integer, flag, enum or string type");
     }
     
     for (const auto& c : stmt.cases) {

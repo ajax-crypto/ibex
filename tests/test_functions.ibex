@@ -23,6 +23,32 @@ package test_fns {
     log_info : (msg: text) {
         const s := msg.size;
     }
+    
+    // Higher-order function: accepts and returns a function
+    higher_order_foo: (param: (i32) -> i32) -> (i32) -> i32 {
+        param(2);
+        return param;
+    }
+    
+    higher_order_bar: (p: i32) -> i32 {
+        return p * 2;
+    }
+    
+    test_higher_order: () -> void {
+        res := higher_order_foo(higher_order_bar)(3);
+    }
+    
+    // Default parameters test
+    func_with_defaults: (a: i32, b: i32 {10}, c: i32 {20}) -> i32 {
+        return a + b + c;
+    }
+    
+    test_default_params: () -> void {
+        res1 := func_with_defaults(1);             // 1 + 10 + 20 = 31
+        res2 := func_with_defaults(1, 2);          // 1 + 2 + 20 = 23
+        res3 := func_with_defaults(1, 2, 3);       // 1 + 2 + 3 = 6
+        res4 := func_with_defaults(a=1, c=5);      // 1 + 10 + 5 = 16
+    }
 }
 
 // Source: test_lambdas.ibex

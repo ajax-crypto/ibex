@@ -24,6 +24,36 @@ package control_flow_tests {
             return 0;
         }
     }
+    
+    nested_if_tests: (a: i32, b: i32) -> i32 {
+        res := 0;
+        if a > 0 {
+            if b > 0 {
+                res = 1;
+            } else if b == 0 {
+                res = 2;
+            } else {
+                res = 3;
+            }
+        } else if a == 0 {
+            if b > 0 {
+                res = 4;
+            } else {
+                res = 5;
+            }
+        } else {
+            if b < 0 {
+                if a < -10 {
+                    res = 6;
+                } else {
+                    res = 7;
+                }
+            } else {
+                res = 8;
+            }
+        }
+        return res;
+    }
 
     // A while loop with continue, break, and an else branch.
     while_break_continue: (limit: i32) -> i32 {
@@ -47,7 +77,7 @@ package control_flow_tests {
     // A for loop over a value and its empty-range corner case.
     for_break_continue: (count: i32) -> i32 {
         var total: i32 = 0;
-        for item in count {
+        for item in 0..count {
             if item == 0 {
                 continue;
             }
@@ -75,7 +105,7 @@ package control_flow_tests {
         var total: i32 = 0;
         while outer < 3 {
             var inner: i32 = 0;
-            for item in outer {
+            for item in 0..outer {
                 if item == inner {
                     total += item;
                 } else {
@@ -126,6 +156,16 @@ package control_flow_tests {
                 res2 = 2;
             }
             default: res2 = 3;
+        }
+        
+        // String-based switch
+        cmd := "start";
+        str_res := 0;
+        switch (cmd) {
+            case "start": str_res = 1;
+            case "stop": str_res = 2;
+            case "pause": str_res = 3;
+            default: str_res = 4;
         }
     }
     
