@@ -1,0 +1,184 @@
+package test_vocabulary {
+    
+    // Function returning a tuple
+    foo : () -> (i32, f64) {
+        return (3, 5.0);
+    }
+
+    main : () -> void {
+        // Multi-element tuple
+        x : (i32, f64, text) = (1, 2.0, "hello");
+        
+        // typeof tuple index
+        y : typeof(x[1]) = 2.0;
+        
+        // size property
+        s : i32 = x.size;
+        
+        // Empty tuple
+        z : () = ();
+
+        // Test tuple assignments
+        a : (i32, i32) = (10, 20);
+
+        // Nested tuple
+        b : ((i32, i32), text) = ((1, 2), "nested");
+        c : typeof(b[0]) = (3, 4);
+        
+        // Call function returning tuple
+        d : (i32, f64) = foo();
+
+        // -------------------------
+        // OPTIONAL TYPES
+        // -------------------------
+        opt1 : i32? = 2;
+        opt2 : i32?;          // Defaults to null intuitively (assuming variable decl allows it if not explicitly initialized)
+        opt3 : bool? = null;
+        
+        // Coalescing Operator
+        res1 : i32 = opt1 or 0;
+        res2 : bool = opt3 or true;
+        
+        // Unwrapping
+        val : i32 = opt1?;
+        
+        // Function with optional arguments
+        func_with_opts(10);
+        func_with_opts(10, 20);
+        func_with_opts(10, null);
+    }
+
+    struct A {
+        member: i32 = 0;
+    }
+
+    test_optional_struct: () -> void {
+        a : A?;
+        // a?.member; // Valid syntax but semantic analysis ensures it works
+        // NOTE: we can't test `a?.member` properly without runtime evaluator actually running it or unless we assign it,
+        // but `a?.member` unwraps a, which yields type A, then accesses member.
+        b : i32 = a?.member;
+    }
+
+    func_with_opts : (x: i32, y: i32?) -> void {
+        // y is optional
+    }
+
+    func_with_bad_opts : (x: i32?, y: i32) -> void {
+        // y is required, x is optional
+    }
+
+    test_mixed_opts : () -> void {
+        func_with_bad_opts(y=2); // Legal: x defaults to null, y provided explicitly
+    }
+
+    // -------------------------
+    // COMPLEX NESTED VOCABULARY
+    // -------------------------
+    
+    complex_test: () -> void {
+        // x is an optional tuple containing a struct A and an i32
+        x : (A, i32)? = null;
+        
+        // This validates semantic syntax traversal:
+        // x? -> unwraps optional, returning (A, i32)
+        // [0] -> indexes tuple, returning A
+        // .member -> accesses struct member, returning i32
+        val : i32 = x?[0].member;
+    }
+
+    // Pass and return tuples
+    process_tuple : (tup: (i32, f64)) -> (f64, i32) {
+        val1 : i32 = tup[0];
+        val2 : f64 = tup[1];
+        return (val2, val1);
+    }
+
+    // Pass and return optionals
+    process_optional : (opt: i32?) -> i32? {
+        // returning an unwrapped optional
+        val : i32 = opt or 0;
+        
+        // Return null or value
+        return null;
+    }
+
+    // -------------------------
+    // VARIANT TYPES
+    // -------------------------
+    
+    test_variants: () -> void {
+        v1 : (i32 + f64 + u8) = 5;
+        v2 : (i32+) = 2; // single choice variant
+        
+        // accessing with 'as'
+        val1 : i32 = v1 as i32;
+        val2 : f64 = v1 as f64; // reinterpret cast works syntactically
+        
+        // Querying members
+        w : i32 = v1.which;
+        c : i32 = v1.count;
+    }
+
+    // -------------------------
+    // MIXED VOCABULARY TYPES
+    // -------------------------
+
+    struct VariantStruct {
+        v: (i32 + f64) = 0;
+        opt_var: (i32 + bool)? = null;
+    }
+
+    process_variant : (v: (i32 + text)) -> (i32 + text) {
+        // Returning a variant directly
+        return v;
+    }
+
+    test_mixed_variants : () -> void {
+        // Struct usage with variant members
+        s : VariantStruct;
+        w : i32 = s.v.which;
+        o : (i32 + bool)? = s.opt_var;
+
+        // Variant containing a tuple and an optional
+        mixed_var : ((i32, i32) + f64?) = (1, 2);
+        
+        // Casting to a tuple type
+        tup : (i32, i32) = mixed_var as (i32, i32);
+        
+        // Tuple containing variants and optionals
+        complex_tup : ((i32+), (bool+f64)?, i32) = (10, null, 5);
+        
+        // Unwrapping the optional variant inside the tuple
+        opt_val : (bool+f64)? = complex_tup[1];
+        
+        // Function call passing and returning a variant
+        input_var : (i32 + text) = "hello";
+        res : (i32 + text) = process_variant(input_var);
+        
+        // Casting the returned variant
+        res_text : text = res as text;
+    }
+
+    // -------------------------
+    // ARRAYS AND SLICES MIXED
+    // -------------------------
+    
+    test_arrays_slices : () -> void {
+        x : [8]i32 = [1, 2, 3, 4, 5, 6, 7, 8];
+        y := x[1:3]; // from index 1, slice of 3 elements (wait, start:end in ibex but conceptually slicing)
+        
+        // The type of y is [:]i32
+        // We can test this by assigning it explicitly
+        y_typed : [:]i32 = y;
+        
+        // Storing in a tuple
+        z := (x, y);
+        
+        // z type is ([8]i32, [:]i32)
+        z_typed : ([8]i32, [:]i32) = z;
+        
+        // Unambiguous variant assignment
+        v : (i32 + i64) = 56i64; // unambiguous, legal
+    }
+}

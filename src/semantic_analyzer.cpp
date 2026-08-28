@@ -238,6 +238,12 @@ void SemanticAnalyzer::report_error(const std::string& msg) {
 }
 
 TypeHandle SemanticAnalyzer::resolve_type(const Type& type_variant) {
+    if (auto* t = std::get_if<TypeofType>(&type_variant)) {
+        if (!t->expr.is_null()) {
+            visit_expr(program_.expressions[t->expr.index], this);
+            return current_expr_type_;
+        }
+    }
     return TypeHandle{0};
 }
 
@@ -387,6 +393,22 @@ void SemanticAnalyzer::visit(const FunctionType& type) {
     }
 }
 
+void SemanticAnalyzer::visit(const TupleType& type) {
+    for (auto handle : type.element_types) {
+        if (!handle.is_null()) visit_type(program_.types[handle.index], this);
+    }
+}
+
+void SemanticAnalyzer::visit(const OptionalType& type) {
+    if (!type.element_type.is_null()) visit_type(program_.types[type.element_type.index], this);
+}
+
+void SemanticAnalyzer::visit(const VariantType& type) {
+    for (auto t : type.types) {
+        if (!t.is_null()) visit_type(program_.types[t.index], this);
+    }
+}
+
 // ----------------------------------------------------------------------------
 // Helper: check mutation target
 // ----------------------------------------------------------------------------
@@ -420,7 +442,35 @@ void SemanticAnalyzer::visit(const BinaryExpr& expr) {
     }
 
     if (!expr.left.is_null()) visit_expr(program_.expressions[expr.left.index], this);
+    TypeHandle left_type = current_expr_type_;
+    
     if (!expr.right.is_null()) visit_expr(program_.expressions[expr.right.index], this);
+    TypeHandle right_type = current_expr_type_;
+
+    if (expr.op == TokenType::OR) {
+        if (!left_type.is_null()) {
+            auto& lt = program_.types[left_type.index];
+            if (auto* opt = std::get_if<OptionalType>(&lt)) {
+                // Return type is the inner type
+                current_expr_type_ = opt->element_type;
+                // We should technically check if right_type is compatible with opt->element_type
+            } else {
+                report_error("Left side of 'or' operator must be an optional type");
+                current_expr_type_ = left_type;
+            }
+        }
+    } else {
+        // For other operators, we just use the left side's type as a basic approximation,
+        // unless it's a comparison where it would be bool.
+        if (expr.op == TokenType::EQ_EQ || expr.op == TokenType::NOT_EQ ||
+            expr.op == TokenType::LESS || expr.op == TokenType::GREATER ||
+            expr.op == TokenType::LESS_EQ || expr.op == TokenType::GREATER_EQ) {
+            // Bool type would be returned here, but we can leave it as TypeHandle{0} if we don't have get_primitive_type(BOOL).
+            current_expr_type_ = TypeHandle{0};
+        } else {
+            current_expr_type_ = left_type;
+        }
+    }
 }
 
 void SemanticAnalyzer::visit(const UnaryExpr& expr) {
@@ -491,7 +541,9 @@ void SemanticAnalyzer::visit(const LiteralExpr& expr) {
 void SemanticAnalyzer::visit(const IdentifierExpr& expr) {
     if (auto sym = find_symbol(expr.name)) {
         check_deprecated(*sym);
+        current_expr_type_ = sym->type;
     } else {
+        current_expr_type_ = TypeHandle{0};
         report_error("Undefined symbol: '" + std::string(expr.name.ptr(), expr.name.len()) + "'");
     }
 }
@@ -559,6 +611,38 @@ void SemanticAnalyzer::visit(const CallExpr& expr) {
                 report_error("No such parameter '" + std::string(named_arg.name.ptr(), named_arg.name.len()) + "' in function");
             }
         }
+        // Check missing arguments (that are not optional)
+        for (size_t i = 0; i < func_decl->parameters.size(); ++i) {
+            const auto& param = func_decl->parameters[i];
+            
+            // Is it provided positionally?
+            bool provided = (i < expr.arguments.size());
+            
+            // Is it provided by name?
+            if (!provided) {
+                for (const auto& named_arg : expr.named_args) {
+                    if (named_arg.name == param.name) {
+                        provided = true;
+                        break;
+                    }
+                }
+            }
+            
+            // If not provided, check if it's optional
+            if (!provided) {
+                bool is_optional = false;
+                if (!param.type.is_null()) {
+                    auto& p_type = program_.types[param.type.index];
+                    if (std::holds_alternative<OptionalType>(p_type)) {
+                        is_optional = true;
+                    }
+                }
+                
+                if (!is_optional) {
+                    report_error("Missing required argument '" + std::string(param.name.ptr(), param.name.len()) + "' for function '" + std::string(func_decl->name.ptr(), func_decl->name.len()) + "'");
+                }
+            }
+        }
     }
 
     if (!expr.function.is_null()) visit_expr(program_.expressions[expr.function.index], this);
@@ -573,6 +657,7 @@ void SemanticAnalyzer::visit(const CallExpr& expr) {
 void SemanticAnalyzer::visit(const CastExpr& expr) {
     if (!expr.target_type.is_null()) visit_type(program_.types[expr.target_type.index], this);
     if (!expr.operand.is_null()) visit_expr(program_.expressions[expr.operand.index], this);
+    current_expr_type_ = expr.target_type;
 }
 
 void SemanticAnalyzer::visit(const MemberExpr& expr) {
@@ -640,6 +725,34 @@ void SemanticAnalyzer::visit(const MemberExpr& expr) {
         }
         
         visit_expr(obj_expr, this);
+        TypeHandle obj_type = current_expr_type_;
+        
+        if (!obj_type.is_null()) {
+            auto& type = program_.types[obj_type.index];
+            if (std::get_if<OptionalType>(&type)) {
+                report_error("Cannot access member of optional type directly, use '?' to unwrap");
+            }
+        }
+        
+        // If it's a tuple, .size is allowed and yields a constant
+        if (auto* id = std::get_if<IdentifierExpr>(&obj_expr)) {
+            if (auto sym = find_symbol(id->name)) {
+                if (!sym->type.is_null()) {
+                    auto& type = program_.types[sym->type.index];
+                    if (std::get_if<TupleType>(&type)) {
+                        std::string member_str(expr.member.ptr(), expr.member.len());
+                        if (member_str != "size") {
+                            report_error("Tuples only have a 'size' property, tried to access '" + member_str + "'");
+                        }
+                    } else if (std::get_if<VariantType>(&type)) {
+                        std::string member_str(expr.member.ptr(), expr.member.len());
+                        if (member_str != "which" && member_str != "count") {
+                            report_error("Variants only have 'which' and 'count' properties, tried to access '" + member_str + "'");
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -682,14 +795,74 @@ void SemanticAnalyzer::visit(const TypeMemberExpr& expr) {
 }
 
 void SemanticAnalyzer::visit(const IndexExpr& expr) {
+    current_expr_type_ = TypeHandle{0};
     if (!expr.object.is_null()) visit_expr(program_.expressions[expr.object.index], this);
+    TypeHandle obj_type = current_expr_type_;
+    
     if (!expr.index.is_null()) visit_expr(program_.expressions[expr.index.index], this);
+
+    // If object has a known type, check if it's a tuple
+    if (!obj_type.is_null()) {
+        auto& type = program_.types[obj_type.index];
+        if (auto* tup = std::get_if<TupleType>(&type)) {
+            ConstExprEvaluator eval(program_);
+            auto idx_val = eval.evaluate(expr.index);
+            if (idx_val) {
+                if (auto* i = std::get_if<int64_t>(&*idx_val)) {
+                    if (*i < 0 || static_cast<size_t>(*i) >= tup->element_types.size()) {
+                        report_error("Tuple index out of bounds");
+                    } else {
+                        current_expr_type_ = tup->element_types[*i];
+                    }
+                } else {
+                    report_error("Tuple index must be an integer");
+                }
+            } else {
+                report_error("Tuple index must be a compile-time constant");
+            }
+        } else if (auto* arr = std::get_if<ArrayType>(&type)) {
+            current_expr_type_ = arr->element;
+            ConstExprEvaluator eval(program_);
+            auto idx_val = eval.evaluate(expr.index);
+            if (idx_val) {
+                if (auto* i = std::get_if<int64_t>(&*idx_val)) {
+                    if (*i < 0 || *i >= arr->size) {
+                        report_error("Array index out of bounds");
+                    }
+                }
+            }
+        } else if (auto* slice = std::get_if<SliceType>(&type)) {
+            current_expr_type_ = slice->element;
+        }
+    }
 }
 
 void SemanticAnalyzer::visit(const SliceExpr& expr) {
+    current_expr_type_ = TypeHandle{0};
     if (!expr.object.is_null()) visit_expr(program_.expressions[expr.object.index], this);
+    TypeHandle obj_type = current_expr_type_;
+    
     if (!expr.start.is_null()) visit_expr(program_.expressions[expr.start.index], this);
     if (!expr.end.is_null()) visit_expr(program_.expressions[expr.end.index], this);
+    
+    if (!obj_type.is_null()) {
+        auto& type = program_.types[obj_type.index];
+        TypeHandle elem_type{0};
+        if (auto* arr = std::get_if<ArrayType>(&type)) {
+            elem_type = arr->element;
+        } else if (auto* slice = std::get_if<SliceType>(&type)) {
+            elem_type = slice->element;
+        }
+        
+        if (!elem_type.is_null()) {
+            SliceType new_slice{elem_type};
+            // Unfortunately, we don't have program_ directly mutable to add types easily here if it didn't exist,
+            // but we can search for it or add it. For semantic analysis, returning an exact match is hard without mutation.
+            // Let's add it to program_.types.
+            program_.types.push_back(new_slice);
+            current_expr_type_ = TypeHandle{static_cast<uint32_t>(program_.types.size() - 1)};
+        }
+    }
 }
 
 void SemanticAnalyzer::visit(const AddressOfExpr& expr) {
@@ -817,6 +990,26 @@ void SemanticAnalyzer::visit(const LambdaExpr& expr) {
     pop_scope();
 }
 
+void SemanticAnalyzer::visit(const TupleExpr& expr) {
+    for (auto handle : expr.elements) {
+        if (!handle.is_null()) visit_expr(program_.expressions[handle.index], this);
+    }
+}
+
+void SemanticAnalyzer::visit(const UnwrapExpr& expr) {
+    if (!expr.operand.is_null()) visit_expr(program_.expressions[expr.operand.index], this);
+    
+    // Type of expr? is the unwrapped type of expr
+    if (!current_expr_type_.is_null()) {
+        auto& t = program_.types[current_expr_type_.index];
+        if (auto* opt = std::get_if<OptionalType>(&t)) {
+            current_expr_type_ = opt->element_type;
+        } else {
+            report_error("Cannot unwrap non-optional type");
+        }
+    }
+}
+
 // ----------------------------------------------------------------------------
 // Statements
 // ----------------------------------------------------------------------------
@@ -884,6 +1077,32 @@ void SemanticAnalyzer::visit(const VarDeclStmt& stmt) {
     if (stmt.type && !stmt.type.value().is_null()) visit_type(program_.types[stmt.type.value().index], this);
     if (stmt.initializer && !stmt.initializer.value().is_null()) {
         visit_expr(program_.expressions[stmt.initializer.value().index], this);
+        if (stmt.type && !stmt.type.value().is_null()) {
+            if (auto* var_type = std::get_if<VariantType>(&program_.types[stmt.type.value().index])) {
+                if (auto* lit = std::get_if<LiteralExpr>(&program_.expressions[stmt.initializer.value().index])) {
+                    if (lit->kind == LiteralExpr::Kind::INTEGER && lit->type_suffix == TokenType::EOF_TOKEN) {
+                        int matches = 0;
+                        for (auto t : var_type->types) {
+                            if (!t.is_null()) {
+                                auto& inner = program_.types[t.index];
+                                if (auto* prim = std::get_if<PrimitiveType>(&inner)) {
+                                    if (prim->primitive >= TokenType::I8 && prim->primitive <= TokenType::U64) {
+                                        matches++;
+                                    }
+                                }
+                            }
+                        }
+                        if (matches > 1) {
+                            report_error("Ambiguous variant initialization: literal can match multiple types");
+                        }
+                    }
+                }
+            }
+        }
+    } else if (stmt.type && !stmt.type.value().is_null()) {
+        if (std::holds_alternative<VariantType>(program_.types[stmt.type.value().index])) {
+            report_error("Variant types must be initialized");
+        }
     }
     add_symbol(stmt.name, stmt.type.value_or(TypeHandle{0}), DeclHandle{}, stmt.is_const, has_attribute(stmt.attributes, "unused"));
 }
@@ -1015,7 +1234,23 @@ void SemanticAnalyzer::visit(const FunctionDecl& decl) {
     validate_attributes(decl.attributes);
     std::cout << "Visiting FunctionDecl: " << std::string(decl.name.ptr(), decl.name.len()) << "\n";
     push_scope();
+    bool seen_optional = false;
     for (const auto& param : decl.parameters) {
+        bool is_optional = false;
+        if (!param.type.is_null()) {
+            auto& p_type = program_.types[param.type.index];
+            if (std::holds_alternative<OptionalType>(p_type)) {
+                is_optional = true;
+            }
+        }
+        
+        if (is_optional) {
+            seen_optional = true;
+        } else if (seen_optional) {
+            std::cout << "Warning: Optional parameter followed by non-optional parameter in function '" 
+                      << std::string(decl.name.ptr(), decl.name.len()) << "'. Consider moving optional parameters to the end.\n";
+        }
+
         add_symbol(param.name, param.type, DeclHandle{}, param.is_const, has_attribute(param.attributes, "unused"));
     }
     if (!decl.body.is_null()) visit_stmt(program_.statements[decl.body.index], this);
@@ -1025,11 +1260,44 @@ void SemanticAnalyzer::visit(const FunctionDecl& decl) {
 void SemanticAnalyzer::visit(const VariableDecl& decl) {
     validate_attributes(decl.attributes);
     std::cout << "Visiting VariableDecl: " << std::string(decl.name.ptr(), decl.name.len()) << "\n";
-    if (decl.type && !decl.type.value().is_null()) visit_type(program_.types[decl.type.value().index], this);
+    TypeHandle resolved_type = decl.type.value_or(TypeHandle{0});
+    if (!resolved_type.is_null()) {
+        auto& t_variant = program_.types[resolved_type.index];
+        if (std::holds_alternative<TypeofType>(t_variant)) {
+            resolved_type = resolve_type(t_variant);
+        }
+        visit_type(t_variant, this);
+    }
     if (decl.initializer && !decl.initializer.value().is_null()) {
         visit_expr(program_.expressions[decl.initializer.value().index], this);
+        if (!resolved_type.is_null()) {
+            if (auto* var_type = std::get_if<VariantType>(&program_.types[resolved_type.index])) {
+                if (auto* lit = std::get_if<LiteralExpr>(&program_.expressions[decl.initializer.value().index])) {
+                    if (lit->kind == LiteralExpr::Kind::INTEGER && lit->type_suffix == TokenType::EOF_TOKEN) {
+                        int matches = 0;
+                        for (auto t : var_type->types) {
+                            if (!t.is_null()) {
+                                auto& inner = program_.types[t.index];
+                                if (auto* prim = std::get_if<PrimitiveType>(&inner)) {
+                                    if (prim->primitive >= TokenType::I8 && prim->primitive <= TokenType::U64) {
+                                        matches++;
+                                    }
+                                }
+                            }
+                        }
+                        if (matches > 1) {
+                            report_error("Ambiguous variant initialization: literal can match multiple types");
+                        }
+                    }
+                }
+            }
+        }
+    } else if (!resolved_type.is_null()) {
+        if (std::holds_alternative<VariantType>(program_.types[resolved_type.index])) {
+            report_error("Variant types must be initialized");
+        }
     }
-    add_symbol(decl.name, decl.type.value_or(TypeHandle{0}), DeclHandle{}, decl.is_const, has_attribute(decl.attributes, "unused"));
+    add_symbol(decl.name, resolved_type, DeclHandle{}, decl.is_const, has_attribute(decl.attributes, "unused"));
 }
 
 void SemanticAnalyzer::flatten_struct_bases(StructDecl& decl, std::vector<StructMember>& out_members, uint32_t& current_offset) {

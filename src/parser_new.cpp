@@ -853,7 +853,7 @@ DeclHandle ParserNew::parse_variable_decl(bool is_const, bool is_static, std::sp
     }
 
     if (!match(TokenType::SEMICOLON)) {
-        error("Expected ';' after variable declaration");
+        error("Expected ';' after variable declaration, got: '" + std::string(current().lexeme) + "'");
         return DeclHandle();
     }
 
@@ -1242,7 +1242,7 @@ ExprHandle ParserNew::parse_expression() {
 }
 
 ExprHandle ParserNew::parse_assignment() {
-    auto expr = parse_logical_or();
+    auto expr = parse_null_coalesce();
     
     TokenType op = current().type;
     if (op == TokenType::EQUAL || op == TokenType::PLUS_EQUAL || 
@@ -1255,6 +1255,18 @@ ExprHandle ParserNew::parse_assignment() {
     }
     
     return expr;
+}
+
+ExprHandle ParserNew::parse_null_coalesce() {
+    auto left = parse_logical_or();
+    
+    while (match(TokenType::OR)) {
+        auto right = parse_logical_or();
+        BinaryExpr binop{left, TokenType::OR, right};
+        left = store_expr(binop);
+    }
+    
+    return left;
 }
 
 ExprHandle ParserNew::parse_logical_or() {
@@ -1529,6 +1541,9 @@ ExprHandle ParserNew::parse_postfix() {
             // Simple member access
             MemberExpr member_access{expr, member};
             expr = store_expr(member_access);
+        } else if (match(TokenType::QUESTION_MARK)) {
+            UnwrapExpr unwrap{expr};
+            expr = store_expr(unwrap);
         } else if (match(TokenType::LBRACK)) {
             // Array indexing or slicing: expr[index] or expr[start:end]
             std::optional<ExprHandle> start;
@@ -1877,14 +1892,40 @@ ExprHandle ParserNew::parse_primary() {
             }
         }
         
-        // Otherwise it's a grouping expression
+        // Otherwise it's a grouping or tuple expression
         current_ = save;
         advance(); // consume (
-        auto expr = parse_expression();
+        
+        if (match(TokenType::RPAREN)) {
+            // Empty tuple
+            TupleExpr tup;
+            tup.elements = std::span<ExprHandle>();
+            return store_expr(tup);
+        }
+
+        std::vector<ExprHandle> elements;
+        elements.push_back(parse_expression());
+        
+        if (match(TokenType::COMMA)) {
+            // It's a tuple
+            while (!check(TokenType::RPAREN) && !is_at_end()) {
+                elements.push_back(parse_expression());
+                if (!match(TokenType::COMMA)) {
+                    break;
+                }
+            }
+            if (!match(TokenType::RPAREN)) {
+                error("Expected ')' after tuple elements");
+            }
+            TupleExpr tup;
+            tup.elements = program_.allocate_array(elements);
+            return store_expr(tup);
+        }
+        
         if (!match(TokenType::RPAREN)) {
             error("Expected ')' after expression");
         }
-        return expr;
+        return elements[0]; // grouping expression
     }
     
     error("Expected expression, got '" + std::string(current().lexeme) + "'");
@@ -1976,60 +2017,102 @@ ExprHandle ParserNew::parse_lambda_expr() {
 // ============================================================================
 
 TypeHandle ParserNew::parse_type() {
-    // Handle function types: (T1, T2) -> RetType
+    TypeHandle base_type;
+    
+    // Handle function types: (T1, T2) -> RetType, or Tuple types: (T1, T2)
     if (match(TokenType::LPAREN)) {
-        std::vector<TypeHandle> param_types;
-        while (!check(TokenType::RPAREN) && !is_at_end()) {
-            param_types.push_back(parse_type());
-            if (!match(TokenType::COMMA)) {
-                break;
+        if (match(TokenType::RPAREN)) {
+            // Empty tuple: () or function with no args: () -> Ret
+            if (match(TokenType::ARROW)) {
+                TypeHandle ret_type = parse_type();
+                FunctionType fn_type{
+                    .param_types = program_.allocate_array(std::vector<TypeHandle>{}),
+                    .return_type = ret_type
+                };
+                base_type = store_type(fn_type);
+            } else {
+                TupleType tup_type{
+                    .element_types = program_.allocate_array(std::vector<TypeHandle>{})
+                };
+                base_type = store_type(tup_type);
+            }
+        } else {
+            TypeHandle first_type = parse_type();
+            
+            if (match(TokenType::PLUS)) {
+                // Variant type: (T1+) or (T1+T2+...)
+                std::vector<TypeHandle> variant_types;
+                variant_types.push_back(first_type);
+                
+                while (!check(TokenType::RPAREN) && !is_at_end()) {
+                    variant_types.push_back(parse_type());
+                    if (!match(TokenType::PLUS)) {
+                        break;
+                    }
+                }
+                
+                if (!match(TokenType::RPAREN)) {
+                    error("Expected ')' after variant type");
+                }
+                
+                VariantType var_type{variant_types};
+                base_type = store_type(var_type);
+                
+            } else {
+                // Function or tuple type
+                std::vector<TypeHandle> param_types;
+                param_types.push_back(first_type);
+                
+                if (match(TokenType::COMMA)) {
+                    while (!check(TokenType::RPAREN) && !is_at_end()) {
+                        param_types.push_back(parse_type());
+                        if (!match(TokenType::COMMA)) {
+                            break;
+                        }
+                    }
+                }
+                
+                if (!match(TokenType::RPAREN)) {
+                    error("Expected ')' in function or tuple type");
+                }
+                
+                if (match(TokenType::ARROW)) {
+                    TypeHandle ret_type = parse_type();
+                    FunctionType fn_type{
+                        .param_types = program_.allocate_array(param_types),
+                        .return_type = ret_type
+                    };
+                    base_type = store_type(fn_type);
+                } else {
+                    TupleType tup_type{
+                        .element_types = program_.allocate_array(param_types)
+                    };
+                    base_type = store_type(tup_type);
+                }
             }
         }
-        if (!match(TokenType::RPAREN)) {
-            error("Expected ')' in function type");
-        }
-        
-        TypeHandle ret_type;
-        if (match(TokenType::ARROW)) {
-            ret_type = parse_type();
-        }
-        
-        FunctionType fn_type{
-            .param_types = program_.allocate_array(param_types),
-            .return_type = ret_type
-        };
-        return store_type(fn_type);
-    }
-
-    // Handle reference types: &T
-    if (match(TokenType::AMPERSAND)) {
+    } else if (match(TokenType::AMPERSAND)) {
         TypeHandle base = parse_type();
         ReferenceType ref{base};
-        return store_type(ref);
-    }
-    
-    // Handle pointer types: *T
-    if (match(TokenType::STAR)) {
+        base_type = store_type(ref);
+    } else if (match(TokenType::STAR)) {
         TypeHandle base = parse_type();
         PointerType ptr{base};
-        return store_type(ptr);
-    }
-    
-    // Handle array types: [N]T or slice types: [:T] or []T
-    if (match(TokenType::LBRACK)) {
+        base_type = store_type(ptr);
+    } else if (match(TokenType::LBRACK)) {
         if (match(TokenType::COLON)) {
-            // Slice type: [:T]
-            TypeHandle base = parse_type();
             if (!match(TokenType::RBRACK)) {
-                error("Expected ']' after slice type");
+                error("Expected ']' after '[:'");
             }
+            // Slice type: [:]T
+            TypeHandle base = parse_type();
             SliceType slice{base};
-            return store_type(slice);
+            base_type = store_type(slice);
         } else if (match(TokenType::RBRACK)) {
             // Slice type: []T
             TypeHandle base = parse_type();
             SliceType slice{base};
-            return store_type(slice);
+            base_type = store_type(slice);
         } else {
             // Array type: [N]T
             auto size_expr = parse_expression();
@@ -2037,13 +2120,29 @@ TypeHandle ParserNew::parse_type() {
                 error("Expected ']' after array size");
             }
             TypeHandle base = parse_type();
-            // TODO: Extract size from size_expr at compile time. For now just set 0.
-            ArrayType arr{base, 0};
-            return store_type(arr);
+            
+            uint64_t size_val = 0;
+            if (!size_expr.is_null()) {
+                if (auto* lit = std::get_if<LiteralExpr>(&program_.expressions[size_expr.index])) {
+                    if (lit->kind == LiteralExpr::Kind::INTEGER) {
+                        size_val = lit->value.int_value;
+                    }
+                }
+            }
+            ArrayType arr{base, static_cast<uint32_t>(size_val)};
+            base_type = store_type(arr);
         }
+    } else {
+        base_type = parse_base_type();
+    }
+
+    // Handle postfix `?` for OptionalType
+    while (match(TokenType::QUESTION_MARK)) {
+        OptionalType opt{base_type};
+        base_type = store_type(opt);
     }
     
-    return parse_base_type();
+    return base_type;
 }
 
 TypeHandle ParserNew::parse_typeof_type() {

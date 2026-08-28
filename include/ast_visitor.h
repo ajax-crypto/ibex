@@ -23,6 +23,9 @@ public:
     virtual void visit(const NamedType& type) = 0;
     virtual void visit(const TypeofType& type) = 0;
     virtual void visit(const FunctionType& type) = 0;
+    virtual void visit(const TupleType& type) = 0;
+    virtual void visit(const OptionalType& type) = 0;
+    virtual void visit(const VariantType& type) = 0;
 };
 
 inline void visit_type(const Type& type, TypeVisitor* visitor) {
@@ -53,6 +56,8 @@ public:
     virtual void visit(const SizeofExpr& expr) = 0;
     virtual void visit(const BindingExpr& expr) = 0;
     virtual void visit(const LambdaExpr& expr) = 0;
+    virtual void visit(const TupleExpr& expr) = 0;
+    virtual void visit(const UnwrapExpr& expr) = 0;
 };
 
 inline void visit_expr(const Expr& expr, ExprVisitor* visitor) {

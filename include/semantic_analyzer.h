@@ -54,6 +54,9 @@ public:
     void visit(const NamedType& type) override;
     void visit(const TypeofType& type) override;
     void visit(const FunctionType& type) override;
+    void visit(const TupleType& type) override;
+    void visit(const OptionalType& type) override;
+    void visit(const VariantType& type) override;
 
     // ExprVisitor
     void visit(const BinaryExpr& expr) override;
@@ -75,6 +78,8 @@ public:
     void visit(const SizeofExpr& expr) override;
     void visit(const BindingExpr& expr) override;
     void visit(const LambdaExpr& expr) override;
+    void visit(const TupleExpr& expr) override;
+    void visit(const UnwrapExpr& expr) override;
 
     // StmtVisitor
     void visit(const BlockStmt& stmt) override;

@@ -21,10 +21,13 @@ Ibex is a statically typed, compiled systems language. This document details its
 - **Text / Strings**: Represented by the `text` type. Implicitly UTF-8 array of `u8` bytes. 
   - Raw literals: `html'''<html>'''`. Exposes `.prefix` and `.bytes` properties. `.bytes.size` is a compile-time constant. Compile-time string declarations infer `const text`.
 - **Composite**: 
-  - Arrays: `[N]T`
-  - Slices: `[:T]` (Pointer + Size)
+  - Arrays: `[N]T` e.g., `x: [8]i32 = [1, 2, 3, 4, 5, 6, 7, 8];`. Accessed via `x[index]`. Fixed size, checked at compile time.
+  - Slices: `[:]T` (Pointer + Size) e.g., `y := x[1:3];` creates a slice from index 1 to 3. The slice type is denoted by `[:]T` for consistency with arrays.
   - Pointers: `*T` (Nullable)
   - References: `&T` (Non-nullable)
+  - Tuples: `(T1, T2, ...)` e.g. `(i32, f64, text) = (1, 2.0, "hello")`. Elements accessed via `x[index]`. Tuple size is available via `.size`. Empty tuples `()` are valid.
+  - Optionals: `T?` specifies a type that can hold a value of type `T` or `null`. e.g. `x: i32? = 2;` or `x: i32? = null;`. Use postfix `?` to unwrap the value (`x?`), which traps if null. Use the `or` operator to coalesce (`x? or 0` or just `x or 0`). Calling members on an optional (like `a.member`) is an error—unwrap it first (`a?.member`). Trailing optional parameters in functions can be omitted (defaulting to `null`).
+  - Variants: `(T1 + T2 + ...)` specifies a sum type that stores exactly one of the listed candidate types. e.g. `x: (i32 + f64) = 5;`. Must be explicitly initialized. Has implicit compile-time member `.count` and runtime member `.which` indicating the active type (0-indexed). Elements are accessed by manual casting using the `as` operator (e.g., `x as i32`). Single-choice variants are supported via trailing `+` syntax, e.g. `(i32+)`.
 
 ## 2. Variables and Constants
 Variables are mutable by default unless marked `const`.

@@ -121,6 +121,7 @@ private:
     ExprHandle parse_expression();
     ExprHandle parse_sizeof_expr();
     ExprHandle parse_assignment();
+    ExprHandle parse_null_coalesce();
     ExprHandle parse_logical_or();
     ExprHandle parse_logical_and();
     ExprHandle parse_bitwise_or();

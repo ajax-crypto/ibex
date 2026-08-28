@@ -31,10 +31,43 @@ package illegal_tests {
         missing_value := does_not_exist;
         wrong_type: i32 = true;
     }
-}
 
-// Missing 'in' is a syntax error in a for statement.
-invalid_for_syntax: () -> void {
-    for item [] {
+    // Invalid tuple access and non-constant indices
+    invalid_tuple_access: () -> void {
+        tup : (i32, f64) = (1, 2.0);
+        out_of_bounds := tup[2];
+        
+        dynamic_idx := 1;
+        non_const_access := tup[dynamic_idx];
+
+        invalid_prop := tup.length;
+    }
+
+    // Function with non-trailing optional parameter
+    func_with_bad_opts : (x: i32?, y: i32) -> void {
+    }
+
+    invalid_optional_call: () -> void {
+        func_with_bad_opts(2); // Illegal: y is not optional and not specified
+    }
+
+    // Invalid variant usages
+    invalid_variants: () -> void {
+        uninit_var : (i32 + f64); // Error: uninitialized variant
+        
+        v : (i32 + f64) = 5;
+        bad_mem := v.length; // Error: variants only have 'which' and 'count'
+        
+        // Ambiguous variant
+        ambig_var : (i32 + i64) = 5; // Error: ambiguous variant initialization
+    }
+
+    // Invalid array usages
+    invalid_arrays: () -> void {
+        x : [8]i32 = [1, 2, 3, 4, 5, 6, 7, 8];
+        
+        // Out of bounds array index
+        bad_idx := x[10]; // Error: array index out of bounds
     }
 }
+

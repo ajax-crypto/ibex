@@ -94,8 +94,23 @@ struct FunctionType {
     TypeHandle return_type;
 };
 
+// Tuple type: (T1, T2, ...)
+struct TupleType {
+    std::span<TypeHandle> element_types;
+};
+
+// Optional type: T?
+struct OptionalType {
+    TypeHandle element_type;
+};
+
+// Variant (sum) type: (T1 + T2 + ...)
+struct VariantType {
+    std::vector<TypeHandle> types;
+};
+
 // Type discriminated union
-using Type = std::variant<PrimitiveType, PointerType, ReferenceType, ArrayType, SliceType, NamedType, TypeofType, FunctionType>;
+using Type = std::variant<PrimitiveType, PointerType, ReferenceType, ArrayType, SliceType, NamedType, TypeofType, FunctionType, TupleType, OptionalType, VariantType>;
 
 // ============================================================================
 // EXPRESSIONS - Discriminated union for expressions
@@ -246,6 +261,16 @@ struct LambdaExpr {
     StmtHandle body;              // Block statement
 };
 
+// Tuple expression: (expr, expr, ...)
+struct TupleExpr {
+    std::span<ExprHandle> elements;
+};
+
+// Unwrap expression: expr?
+struct UnwrapExpr {
+    ExprHandle operand;
+};
+
 // Expression discriminated union
 using Expr = std::variant<
     BinaryExpr,
@@ -266,7 +291,9 @@ using Expr = std::variant<
     FreeExpr,
     SizeofExpr,
     BindingExpr,
-    LambdaExpr
+    LambdaExpr,
+    TupleExpr,
+    UnwrapExpr
 >;
 
 // ============================================================================

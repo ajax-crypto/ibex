@@ -40,8 +40,7 @@ Primitive type keywords:
 Operators are listed from highest to lowest precedence.
 
 | Precedence | Operator | Description | Arity |
-|---|---|---|---|
-| 1 | `()` `[]` `.` | Grouping, Indexing, Member Access | Binary/NA |
+| 1 | `()` `[]` `.` `?` | Grouping, Indexing, Member Access, Optional Unwrap | Binary/NA/Postfix |
 | 2 | `!` `~` `-` `@` `&` `*` `sizeof` `typeof` | Logical NOT, Bitwise NOT, Negation, Address-of, Dereference, Size/Type | Unary |
 | 3 | `as` | Type Cast | Binary |
 | 4 | `*` `/` `%` | Multiplication, Division, Modulo | Binary |
@@ -54,7 +53,8 @@ Operators are listed from highest to lowest precedence.
 | 11 | `\|` | Bitwise OR | Binary |
 | 12 | `&&` | Logical AND | Binary |
 | 13 | `\|\|` | Logical OR | Binary |
-| 14 | `=` `:=` `+=` `-=` `*=` `/=` | Assignment and Compound Assignment | Binary |
+| 14 | `or` | Null Coalescing | Binary |
+| 15 | `=` `:=` `+=` `-=` `*=` `/=` | Assignment and Compound Assignment | Binary |
 
 ### 1.3 Comments and Delimiters
 Ibex uses strict structural delimiters to ensure unambiguous parsing:
@@ -135,7 +135,8 @@ ReturnStmt ::= "return" [ Expr ] ";"
 BreakStmt ::= "break" ";"
 ContinueStmt ::= "continue" ";"
 
-Expr ::= BinaryExpr | UnaryExpr | PrimaryExpr | CastExpr | MemberExpr | IndexExpr | CallExpr | SizeofExpr | StructInitExpr | ArrayLiteralExpr
+Expr ::= BinaryExpr | UnaryExpr | PrimaryExpr | CastExpr | MemberExpr | IndexExpr | CallExpr | SizeofExpr | StructInitExpr | ArrayLiteralExpr | UnwrapExpr
+UnwrapExpr ::= Expr "?"
 CallExpr ::= Expr "(" [ CallArgList ] ")"
 CallArgList ::= CallArg { "," CallArg }
 CallArg ::= [ Identifier "=" ] Expr
@@ -145,6 +146,7 @@ StructInitList ::= StructFieldInit { "," StructFieldInit }
 StructFieldInit ::= [ Identifier ( ":" | "=" ) ] Expr
 
 ArrayLiteralExpr ::= "[" [ExprList] "]"
+TupleExpr ::= "(" [ ExprList ] ")"
 
 SizeofExpr ::= "sizeof" "(" (Type | Expr) ")"
 TypeofExpr ::= "typeof" "(" Expr ")"
@@ -152,11 +154,16 @@ TypeofExpr ::= "typeof" "(" Expr ")"
 
 ### 2.3 Types
 ```ebnf
-Type ::= PrimitiveType | NamedType | PointerType | ReferenceType | ArrayType | SliceType | TypeofExpr
+Type ::= PrimitiveType | NamedType | PointerType | ReferenceType | ArrayType | SliceType | TupleType | OptionalType | VariantType | TypeofExpr
 ArrayType ::= "[" Expr "]" Type
 SliceType ::= "[:" Type "]"
 PointerType ::= "*" Type
 ReferenceType ::= "&" Type
+TupleType ::= "(" [ TypeList ] ")"
+OptionalType ::= Type "?"
+VariantType ::= "(" Type "+" [ VariantTypeList ] ")"
+VariantTypeList ::= Type { "+" Type }
+TypeList ::= Type { "," Type }
 ```
 
 ## 3. Semantics
@@ -180,6 +187,7 @@ ReferenceType ::= "&" Type
 
 ### 3.4 Implicit Structural Members
 - **Arrays & Slices**: All arrays (`[N]T`) and slices (`[:T]`) intrinsically possess a read-only `.size` member which returns the element count. For explicit arrays, this is a compile-time constant.
+- **Tuples**: Collections of values of potentially different types, e.g., `(i32, f64, text)`. Elements are accessed via 0-based compile-time constant indices (e.g., `x[1]`). The type of `x[1]` is deduced at compile time (`fp64`). Tuples have a read-only `.size` member which is a compile-time constant. Empty tuples `()` are valid.
 - **`text` Type**: Strings are implicit UTF-8 byte arrays. The `text` type exposes intrinsic properties:
   - `.prefix`: A `text` slice pointing strictly to the prefix string literal (e.g. `html` in `html'''...'''`).
   - `.bytes`: Exposes the underlying `u8` array containing the raw string data.

@@ -215,6 +215,7 @@ TokenType Lexer::keyword_type(std::string_view lexeme) {
         {"import", TokenType::IMPORT},
         {"typeof", TokenType::TYPEOF},
         {"sizeof", TokenType::SIZEOF},
+        {"or", TokenType::OR},
         {"true", TokenType::TRUE_LITERAL},
         {"false", TokenType::FALSE_LITERAL},
         {"null", TokenType::NULL_LITERAL},
@@ -438,6 +439,7 @@ Token Lexer::next_token() {
         }
         case ';': return make_token(TokenType::SEMICOLON);
         case ',': return make_token(TokenType::COMMA);
+        case '?': return make_token(TokenType::QUESTION_MARK);
         default:
             errors_.push_back(std::string("Unknown character: ") + c);
             return make_token(TokenType::UNKNOWN);

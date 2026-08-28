@@ -43,6 +43,7 @@ enum class TokenType {
     IMPORT,         // import
     TYPEOF,         // typeof
     SIZEOF,         // sizeof
+    OR,             // or (optional default operator)
 
     // Primitive types
     I8, I16, I32, I64,
@@ -97,6 +98,7 @@ enum class TokenType {
     SEMICOLON,      // ;
     COLON,          // :
     COMMA,          // ,
+    QUESTION_MARK,  // ? (optional type / unwrap)
     RANGE_OP,       // .. (range operator)
 
     // Special
