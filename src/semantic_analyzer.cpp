@@ -4,6 +4,9 @@
 #include <functional>
 #include <climits>
 #include <cmath>
+#include <string>
+#include <unordered_set>
+#include <string_view>
 #include <cfloat>
 
 namespace ibex {
@@ -1397,6 +1400,144 @@ void SemanticAnalyzer::visit(const UnwrapExpr& expr) {
     }
 }
 
+namespace {
+
+void extract_deps(const ibex::Program& prog, ibex::ExprHandle expr_handle, std::unordered_set<std::string_view>& deps, bool& has_complex, ibex::SemanticAnalyzer* analyzer) {
+    if (expr_handle.is_null()) return;
+    const auto& expr = prog.expressions[expr_handle.index];
+    
+    std::visit([&](auto&& e) {
+        using T = std::decay_t<decltype(e)>;
+        if constexpr (std::is_same_v<T, ibex::IdentifierExpr>) {
+            std::string_view name(e.name.ptr(), e.name.len());
+            if (analyzer) {
+                if (auto sym = analyzer->find_symbol(e.name)) {
+                    if (sym->scope_depth <= 1 || sym->is_static) {
+                        has_complex = true; // Global variable
+                    }
+                } else {
+                    has_complex = true;
+                }
+            }
+            deps.insert(name);
+        } else if constexpr (std::is_same_v<T, ibex::CallExpr>) {
+            has_complex = true;
+        } else if constexpr (std::is_same_v<T, ibex::BinaryExpr>) {
+            extract_deps(prog, e.left, deps, has_complex, analyzer);
+            extract_deps(prog, e.right, deps, has_complex, analyzer);
+        } else if constexpr (std::is_same_v<T, ibex::UnaryExpr>) {
+            extract_deps(prog, e.operand, deps, has_complex, analyzer);
+        } else if constexpr (std::is_same_v<T, ibex::MemberExpr>) {
+            extract_deps(prog, e.object, deps, has_complex, analyzer);
+        } else if constexpr (std::is_same_v<T, ibex::IndexExpr>) {
+            extract_deps(prog, e.object, deps, has_complex, analyzer);
+            extract_deps(prog, e.index, deps, has_complex, analyzer);
+        }
+    }, expr);
+}
+
+std::string_view get_base_identifier(const ibex::Program& prog, ibex::ExprHandle expr_handle) {
+    if (expr_handle.is_null()) return "";
+    const auto& expr = prog.expressions[expr_handle.index];
+    
+    std::string_view result = "";
+    std::visit([&](auto&& e) {
+        using T = std::decay_t<decltype(e)>;
+        if constexpr (std::is_same_v<T, ibex::IdentifierExpr>) {
+            result = std::string_view(e.name.ptr(), e.name.len());
+        } else if constexpr (std::is_same_v<T, ibex::MemberExpr>) {
+            result = get_base_identifier(prog, e.object);
+        } else if constexpr (std::is_same_v<T, ibex::IndexExpr>) {
+            result = get_base_identifier(prog, e.object);
+        } else if constexpr (std::is_same_v<T, ibex::DereferenceExpr>) {
+            result = get_base_identifier(prog, e.pointer);
+        }
+    }, expr);
+    return result;
+}
+
+bool is_mutated(const ibex::Program& prog, ibex::ExprHandle expr_handle, const std::unordered_set<std::string_view>& deps);
+bool is_mutated(const ibex::Program& prog, ibex::StmtHandle stmt_handle, const std::unordered_set<std::string_view>& deps);
+
+bool is_mutated(const ibex::Program& prog, ibex::ExprHandle expr_handle, const std::unordered_set<std::string_view>& deps) {
+    if (expr_handle.is_null()) return false;
+    const auto& expr = prog.expressions[expr_handle.index];
+    
+    bool mutated = false;
+    std::visit([&](auto&& e) {
+        using T = std::decay_t<decltype(e)>;
+        if constexpr (std::is_same_v<T, ibex::BinaryExpr>) {
+            if (e.op == ibex::TokenType::EQUAL || e.op == ibex::TokenType::PLUS_EQUAL ||
+                e.op == ibex::TokenType::MINUS_EQUAL || e.op == ibex::TokenType::STAR_EQUAL ||
+                e.op == ibex::TokenType::SLASH_EQUAL) {
+                std::string_view base = get_base_identifier(prog, e.left);
+                if (deps.count(base)) {
+                    mutated = true;
+                }
+            }
+            if (!mutated) mutated = is_mutated(prog, e.left, deps) || is_mutated(prog, e.right, deps);
+        } else if constexpr (std::is_same_v<T, ibex::CallExpr>) {
+            for (auto a : e.arguments) {
+                if (a.is_null()) continue;
+                const auto& arg_expr = prog.expressions[a.index];
+                if (std::holds_alternative<ibex::AddressOfExpr>(arg_expr) || std::holds_alternative<ibex::RefExpr>(arg_expr)) {
+                    ibex::ExprHandle op;
+                    if (auto* addr = std::get_if<ibex::AddressOfExpr>(&arg_expr)) op = addr->operand;
+                    else if (auto* r = std::get_if<ibex::RefExpr>(&arg_expr)) op = r->operand;
+                    
+                    std::string_view base = get_base_identifier(prog, op);
+                    if (deps.count(base)) mutated = true;
+                }
+                if (!mutated) mutated = is_mutated(prog, a, deps);
+            }
+        } else if constexpr (std::is_same_v<T, ibex::BlockExpr>) {
+            for (auto s : e.statements) {
+                if (is_mutated(prog, s, deps)) mutated = true;
+            }
+        }
+    }, expr);
+    return mutated;
+}
+
+bool is_mutated(const ibex::Program& prog, ibex::StmtHandle stmt_handle, const std::unordered_set<std::string_view>& deps) {
+    if (stmt_handle.is_null()) return false;
+    const auto& stmt = prog.statements[stmt_handle.index];
+    
+    bool mutated = false;
+    std::visit([&](auto&& s) {
+        using T = std::decay_t<decltype(s)>;
+        if constexpr (std::is_same_v<T, ibex::ExprStmt>) {
+            mutated = is_mutated(prog, s.expression, deps);
+        } else if constexpr (std::is_same_v<T, ibex::BlockStmt>) {
+            for (auto st : s.statements) {
+                if (is_mutated(prog, st, deps)) mutated = true;
+            }
+        } else if constexpr (std::is_same_v<T, ibex::IfStmt>) {
+            if (!s.then_branch.is_null()) mutated = is_mutated(prog, s.then_branch, deps);
+            if (!mutated && s.else_branch && !s.else_branch.value().is_null()) mutated = is_mutated(prog, *s.else_branch, deps);
+        } else if constexpr (std::is_same_v<T, ibex::ForStmt>) {
+            if (s.is_c_style && s.increment && !s.increment.value().is_null()) mutated = is_mutated(prog, *s.increment, deps);
+            if (!mutated && !s.body.is_null()) mutated = is_mutated(prog, s.body, deps);
+        } else if constexpr (std::is_same_v<T, ibex::WhileStmt>) {
+            if (!s.body.is_null()) mutated = is_mutated(prog, s.body, deps);
+        }
+    }, stmt);
+    return mutated;
+}
+
+bool is_compile_time_false(const ibex::Program& prog, ibex::ExprHandle expr_handle) {
+    if (expr_handle.is_null()) return false;
+    const auto& expr = prog.expressions[expr_handle.index];
+    if (auto* lit = std::get_if<ibex::LiteralExpr>(&expr)) {
+        if (lit->kind == ibex::LiteralExpr::Kind::BOOLEAN && lit->value.bool_value == false) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
+
 // ----------------------------------------------------------------------------
 // Statements
 // ----------------------------------------------------------------------------
@@ -1431,7 +1572,20 @@ void SemanticAnalyzer::visit(const IfStmt& stmt) {
 
 void SemanticAnalyzer::visit(const WhileStmt& stmt) {
     validate_attributes(stmt.attributes);
-    if (!stmt.condition.is_null()) visit_expr(program_.expressions[stmt.condition.index], this);
+    if (!stmt.condition.is_null()) {
+        visit_expr(program_.expressions[stmt.condition.index], this);
+        
+        std::unordered_set<std::string_view> deps;
+        bool has_complex = false;
+        extract_deps(program_, stmt.condition, deps, has_complex, this);
+        if (!has_complex && !deps.empty() && !is_compile_time_false(program_, stmt.condition)) {
+            if (!is_mutated(program_, stmt.body, deps)) {
+                std::string dep_list;
+                for (auto d : deps) dep_list += std::string(d) + " ";
+                report_error("Infinite loop detected: condition variables are never modified: " + dep_list);
+            }
+        }
+    }
     if (!stmt.body.is_null()) visit_stmt(program_.statements[stmt.body.index], this);
     if (stmt.else_branch && !stmt.else_branch.value().is_null()) {
         visit_stmt(program_.statements[stmt.else_branch.value().index], this);
@@ -1440,11 +1594,60 @@ void SemanticAnalyzer::visit(const WhileStmt& stmt) {
 
 void SemanticAnalyzer::visit(const ForStmt& stmt) {
     validate_attributes(stmt.attributes);
-    if (!stmt.range.is_null()) visit_expr(program_.expressions[stmt.range.index], this);
+    
     push_scope();
-    add_symbol(stmt.variable, TypeHandle{0}, DeclHandle{}, true);
-    if (!stmt.body.is_null()) visit_stmt(program_.statements[stmt.body.index], this);
+    
+    if (stmt.is_c_style) {
+        if (stmt.init && !stmt.init.value().is_null()) {
+            visit_stmt(program_.statements[stmt.init.value().index], this);
+        }
+        if (stmt.condition && !stmt.condition.value().is_null()) {
+            visit_expr(program_.expressions[stmt.condition.value().index], this);
+            
+            std::unordered_set<std::string_view> deps;
+            bool has_complex = false;
+            extract_deps(program_, stmt.condition.value(), deps, has_complex, this);
+            if (!has_complex && !deps.empty() && !is_compile_time_false(program_, stmt.condition.value())) {
+                bool mutated_in_inc = stmt.increment && !stmt.increment.value().is_null() && is_mutated(program_, stmt.increment.value(), deps);
+                bool mutated_in_body = !stmt.body.is_null() && is_mutated(program_, stmt.body, deps);
+                if (!mutated_in_inc && !mutated_in_body) {
+                    std::string dep_list;
+                    for (auto d : deps) dep_list += std::string(d) + " ";
+                    report_error("Infinite loop detected: condition variables are never modified: " + dep_list);
+                }
+            }
+        }
+        if (stmt.increment && !stmt.increment.value().is_null()) {
+            visit_stmt(program_.statements[stmt.increment.value().index], this);
+        }
+    } else {
+        TypeHandle loop_var_type = TypeHandle{0};
+        if (stmt.range && !stmt.range.value().is_null()) {
+            visit_expr(program_.expressions[stmt.range.value().index], this);
+            TypeHandle range_type = current_expr_type_;
+            
+            if (!range_type.is_null()) {
+                if (auto* arr = std::get_if<ArrayType>(&program_.types[range_type.index])) {
+                    loop_var_type = arr->element;
+                } else if (auto* sl = std::get_if<SliceType>(&program_.types[range_type.index])) {
+                    loop_var_type = sl->element;
+                } else if (std::holds_alternative<RangeExpr>(program_.expressions[stmt.range.value().index])) {
+                    loop_var_type = range_type;
+                }
+            }
+        }
+        add_symbol(stmt.variable, loop_var_type, DeclHandle{}, true);
+        if (stmt.index_variable) {
+            add_symbol(stmt.index_variable.value(), TypeHandle{0}, DeclHandle{}, true);
+        }
+    }
+    
+    if (!stmt.body.is_null()) {
+        visit_stmt(program_.statements[stmt.body.index], this);
+    }
+    
     pop_scope();
+    
     if (stmt.else_branch && !stmt.else_branch.value().is_null()) {
         visit_stmt(program_.statements[stmt.else_branch.value().index], this);
     }

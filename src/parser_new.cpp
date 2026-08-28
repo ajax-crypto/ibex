@@ -844,7 +844,7 @@ DeclHandle ParserNew::parse_variable_decl(bool is_const, bool is_static, std::sp
         return DeclHandle();
     }
 
-    if (initializer) {
+    if (initializer && !initializer->is_null()) {
         if (auto* lit = std::get_if<LiteralExpr>(&program_.expressions[initializer->index])) {
             if (lit->kind == LiteralExpr::Kind::STRING) {
                 is_const = true;
@@ -1157,42 +1157,98 @@ StmtHandle ParserNew::parse_while_statement(std::span<Attribute> attrs) {
 }
 
 StmtHandle ParserNew::parse_for_statement(std::span<Attribute> attrs) {
-    if (!check(TokenType::IDENTIFIER)) {
-        error("Expected variable in for loop");
-        return StmtHandle();
+    ForStmt stmt;
+    stmt.attributes = attrs;
+    stmt.is_c_style = false;
+    stmt.is_reverse = false;
+    
+    if (match(TokenType::LPAREN)) {
+        stmt.is_c_style = true;
+        
+        // 1. Init
+        if (!match(TokenType::SEMICOLON)) {
+            if (check(TokenType::VAR)) {
+                advance();
+                stmt.init = parse_var_decl_statement(false, false, {});
+            } else if (check(TokenType::IDENTIFIER)) {
+                size_t save = current_;
+                advance();
+                if (check(TokenType::COLON) || check(TokenType::COLON_EQUAL)) {
+                    current_ = save;
+                    stmt.init = parse_var_decl_statement(false, false, {});
+                } else {
+                    current_ = save;
+                    stmt.init = parse_expression_statement();
+                }
+            } else {
+                stmt.init = parse_expression_statement();
+            }
+        }
+        
+        // 2. Condition
+        if (!check(TokenType::SEMICOLON)) {
+            stmt.condition = parse_expression();
+        }
+        if (!match(TokenType::SEMICOLON)) {
+            error("Expected ';' after loop condition");
+        }
+        
+        // 3. Increment
+        if (!check(TokenType::RPAREN)) {
+            stmt.increment = store_stmt(ExprStmt{parse_expression()});
+        }
+        if (!match(TokenType::RPAREN)) {
+            error("Expected ')' after for clauses");
+        }
+    } else {
+        // Range-based for loop: for <var> [ : <index> ] in [ ~ ] <source>
+        if (!check(TokenType::IDENTIFIER)) {
+            error("Expected variable in for loop");
+            return StmtHandle();
+        }
+        stmt.variable = alloc_str(advance().lexeme);
+        
+        if (match(TokenType::COLON)) {
+            if (!check(TokenType::IDENTIFIER)) {
+                error("Expected index variable after ':'");
+                return StmtHandle();
+            }
+            stmt.index_variable = alloc_str(advance().lexeme);
+        }
+        
+        if (!match(TokenType::IN)) {
+            error("Expected 'in' after for variable(s)");
+            return StmtHandle();
+        }
+        
+        if (match(TokenType::TILDE)) {
+            stmt.is_reverse = true;
+        }
+        
+        bool old_allow = allow_struct_init_;
+        allow_struct_init_ = false;
+        stmt.range = parse_expression();
+        allow_struct_init_ = old_allow;
     }
-    
-    Str loop_var = alloc_str(advance().lexeme);
-    
-    if (!match(TokenType::IN)) {
-        error("Expected 'in' after for variable");
-        return StmtHandle();
-    }
-    
-    bool old_allow = allow_struct_init_;
-    allow_struct_init_ = false;
-    auto range_expr = parse_expression();
-    allow_struct_init_ = old_allow;
     
     if (!match(TokenType::LBRACE)) {
-        error("Expected '{' after for range expression");
+        error("Expected '{' before for loop body");
         return StmtHandle();
     }
     
-    auto body = parse_block_statement();
+    stmt.body = parse_block_statement();
     
     // Parse optional else block
-    std::optional<StmtHandle> else_branch;
     if (match(TokenType::ELSE)) {
         if (match(TokenType::LBRACE)) {
-            else_branch = parse_block_statement();
+            stmt.else_branch = parse_block_statement();
         } else {
             error("Expected '{' after else");
             return StmtHandle();
         }
     }
     
-    return store_stmt(ForStmt{.attributes = attrs, .variable = loop_var, .range = range_expr, .body = body, .else_branch = else_branch});
+    return store_stmt(stmt);
 }
 
 StmtHandle ParserNew::parse_switch_statement(std::span<Attribute> attrs) {

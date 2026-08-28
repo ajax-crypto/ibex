@@ -123,7 +123,9 @@ private:
     void push_scope();
     void pop_scope();
     void add_symbol(Str name, TypeHandle type, DeclHandle decl_handle = DeclHandle{}, bool is_const = false, bool allow_unused = false, bool is_static = false);
+public:
     std::optional<Symbol> find_symbol(Str name);
+private:
     void report_error(const std::string& msg);
 
     // Helpers

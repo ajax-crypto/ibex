@@ -152,4 +152,27 @@ test_bad_switch: () -> void {
     
     // Standalone range mismatch
     bad_range := if y in 1..SwitchEnum.A { 1 } else { 0 };
+
+invalid_for_loops: () -> void {
+    // Missing semicolon in C-style for loop condition
+    for (i := 0; i < 3 i = i + 1) {}
+    
+    // Missing 'in' keyword in range loop
+    for x arr {}
+    
+    // Missing loop body braces
+    for elem in arr 
+        x := elem;
+}
+
+infinite_loops: () -> void {
+    x := 0;
+    while (x < 10) {
+        y := 1; // x is never modified
+    }
+    
+    for (i := 0; i < 10; ) { // no increment
+        y := 1; // i is never modified
+    }
+}
 }

@@ -349,8 +349,19 @@ struct WhileStmt {
 
 struct ForStmt {
     std::span<Attribute> attributes;
+    
+    // C-style loop fields
+    bool is_c_style;
+    std::optional<StmtHandle> init;
+    std::optional<ExprHandle> condition;
+    std::optional<StmtHandle> increment;
+    
+    // Range-style loop fields
     Str variable;         // Loop variable name
-    ExprHandle range;     // Range expression (can be a literal range or call)
+    std::optional<Str> index_variable;
+    bool is_reverse;
+    std::optional<ExprHandle> range;     // Range expression or source
+
     StmtHandle body;
     std::optional<StmtHandle> else_branch;  // Executed if range is empty
 };
