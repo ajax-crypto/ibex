@@ -181,4 +181,68 @@ package test_vocabulary {
         // Unambiguous variant assignment
         v : (i32 + i64) = 56i64; // unambiguous, legal
     }
+
+    // -------------------------
+    // BITWISE OPERATORS
+    // -------------------------
+    
+    test_bitwise_ops : () -> void {
+        a : i32 = 5;       // 0101
+        b : i32 = 3;       // 0011
+        
+        c : i32 = a | b;   // 0111 (7)
+        d : i32 = a & b;   // 0001 (1)
+        e : i32 = a ^ b;   // 0110 (6)
+        f : i32 = ~a;      // complement
+        
+        g : i32 = a << 2;  // 20
+        h : i32 = a >> 1;  // 2
+        
+        // Unsigned shift
+        u : u8 = 10;
+        u_shifted : u8 = u >> 1;
+        
+        // Using bitwise operators in array sizes (const eval)
+        arr : [1 << 2]i32; // size is 4
+        // Check bounds correctly
+        val : i32 = arr[3]; 
+    }
+
+    // -------------------------
+    // FLAG TYPES
+    // -------------------------
+
+    flag MyFlag : u32 {
+        F1,
+        F2,
+        F3,
+        F4 = F2 | F3
+    }
+
+    test_flags : () -> void {
+        x : MyFlag = MyFlag.F1 | MyFlag.F2;
+        y : MyFlag = MyFlag.F3;
+
+        // Bitwise operations
+        z : MyFlag = x & y;
+        w : MyFlag = x ^ MyFlag.F4;
+        c : MyFlag = ~x;
+        
+        // Property
+        u : u32 = x.underlying;
+        
+        // Methods
+        x.set(MyFlag.F3);
+        x.reset(MyFlag.F1 | MyFlag.F2);
+        
+        b : bool = x.has(MyFlag.F3);
+        
+        // Comparison
+        b2 : bool = (x == y);
+        b3 : bool = (x != MyFlag.F1);
+        
+        // Casting
+        from_int : MyFlag = 3 as MyFlag;
+        to_int : u32 = x as u32;
+    }
 }

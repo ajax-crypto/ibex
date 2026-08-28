@@ -69,5 +69,34 @@ package illegal_tests {
         // Out of bounds array index
         bad_idx := x[10]; // Error: array index out of bounds
     }
+
+    // Invalid bitwise usages
+    invalid_bitwise: () -> void {
+        f : f32 = 1.0;
+        
+        bad_or := f | 2.0; // Error: bitwise ops only on int
+        bad_comp := ~f;    // Error: bitwise complement only on int
+    }
+
+    flag BadFlag : u32 {
+        A, B
+    }
+
+    invalid_flags: () -> void {
+        x : BadFlag = BadFlag.A;
+        
+        // Arithmetic on flags is illegal
+        bad_add := x + BadFlag.B;
+        
+        // Non-existent member
+        bad_mem := x.non_existent;
+        
+        // Non-existent enum member
+        bad_enum := BadFlag.C;
+        
+        // Bad methods
+        x.set(); // Error: expected 1 arg
+        x.has(1, 2); // Error: expected 1 arg
+    }
 }
 

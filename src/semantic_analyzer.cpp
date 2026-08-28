@@ -7,6 +7,15 @@
 #include <cfloat>
 
 namespace ibex {
+    
+static bool is_integer_type(const Program& program, TypeHandle th) {
+    if (th.is_null()) return false;
+    auto& type = program.types[th.index];
+    if (auto* prim = std::get_if<PrimitiveType>(&type)) {
+        return prim->primitive >= TokenType::I8 && prim->primitive <= TokenType::BYTE; // BYTE is alias for U8
+    }
+    return false;
+}
 
 SemanticAnalyzer::SemanticAnalyzer(Program& program, TypeRegistry& type_registry)
     : program_(program), type_registry_(type_registry) {
@@ -459,13 +468,61 @@ void SemanticAnalyzer::visit(const BinaryExpr& expr) {
                 current_expr_type_ = left_type;
             }
         }
+    } else if (expr.op == TokenType::PIPE || expr.op == TokenType::CARET || expr.op == TokenType::AMPERSAND ||
+               expr.op == TokenType::LSHIFT || expr.op == TokenType::RSHIFT) {
+               
+        auto is_flag_type = [&](TypeHandle th) {
+            if (th.is_null()) return false;
+            auto& type = program_.types[th.index];
+            if (auto* named = std::get_if<NamedType>(&type)) {
+                auto sym = find_symbol(named->name);
+                if (sym && !sym->decl_handle.is_null()) {
+                    return std::holds_alternative<FlagDecl>(program_.declarations[sym->decl_handle.index]);
+                }
+            }
+            return false;
+        };
+
+        bool left_int = is_integer_type(program_, left_type);
+        bool right_int = is_integer_type(program_, right_type);
+        bool left_flag = is_flag_type(left_type);
+        bool right_flag = is_flag_type(right_type);
+
+        if (expr.op == TokenType::LSHIFT || expr.op == TokenType::RSHIFT) {
+            if (!left_int || !right_int) {
+                report_error("Shift operators are only allowed on integer types");
+            }
+        } else {
+            if (!((left_int && right_int) || (left_flag && right_flag))) {
+                report_error("Bitwise operators are only allowed on integer types or matching flag types");
+            }
+        }
+        current_expr_type_ = left_type;
     } else {
-        // For other operators, we just use the left side's type as a basic approximation,
-        // unless it's a comparison where it would be bool.
-        if (expr.op == TokenType::EQ_EQ || expr.op == TokenType::NOT_EQ ||
-            expr.op == TokenType::LESS || expr.op == TokenType::GREATER ||
-            expr.op == TokenType::LESS_EQ || expr.op == TokenType::GREATER_EQ) {
-            // Bool type would be returned here, but we can leave it as TypeHandle{0} if we don't have get_primitive_type(BOOL).
+        auto is_flag_type = [&](TypeHandle th) {
+            if (th.is_null()) return false;
+            auto& type = program_.types[th.index];
+            if (auto* named = std::get_if<NamedType>(&type)) {
+                auto sym = find_symbol(named->name);
+                if (sym && !sym->decl_handle.is_null()) {
+                    return std::holds_alternative<FlagDecl>(program_.declarations[sym->decl_handle.index]);
+                }
+            }
+            return false;
+        };
+
+        bool is_comparison = (expr.op == TokenType::EQ_EQ || expr.op == TokenType::NOT_EQ ||
+                              expr.op == TokenType::LESS || expr.op == TokenType::GREATER ||
+                              expr.op == TokenType::LESS_EQ || expr.op == TokenType::GREATER_EQ);
+
+        bool l_flag = is_flag_type(left_type);
+        bool r_flag = is_flag_type(right_type);
+
+        if (!is_comparison && (l_flag || r_flag)) {
+            report_error("Arithmetic and logical operators are not allowed on flag types");
+        }
+
+        if (is_comparison) {
             current_expr_type_ = TypeHandle{0};
         } else {
             current_expr_type_ = left_type;
@@ -475,6 +532,24 @@ void SemanticAnalyzer::visit(const BinaryExpr& expr) {
 
 void SemanticAnalyzer::visit(const UnaryExpr& expr) {
     if (!expr.operand.is_null()) visit_expr(program_.expressions[expr.operand.index], this);
+    
+    if (expr.op == TokenType::TILDE) {
+        auto is_flag_type = [&](TypeHandle th) {
+            if (th.is_null()) return false;
+            auto& type = program_.types[th.index];
+            if (auto* named = std::get_if<NamedType>(&type)) {
+                auto sym = find_symbol(named->name);
+                if (sym && !sym->decl_handle.is_null()) {
+                    return std::holds_alternative<FlagDecl>(program_.declarations[sym->decl_handle.index]);
+                }
+            }
+            return false;
+        };
+
+        if (!is_integer_type(program_, current_expr_type_) && !is_flag_type(current_expr_type_)) {
+            report_error("Bitwise complement is only allowed on integer types or flag types");
+        }
+    }
 }
 
 void SemanticAnalyzer::visit(const LiteralExpr& expr) {
@@ -584,6 +659,42 @@ void SemanticAnalyzer::visit(const CallExpr& expr) {
                                     func_decl = std::get_if<FunctionDecl>(&program_.declarations[pkg_sym.decl_handle.index]);
                                     break;
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Check if this is a method call on a flag type (set, reset, has)
+    if (!func_decl && !expr.function.is_null()) {
+        auto& func_expr = program_.expressions[expr.function.index];
+        if (auto* mem_expr = std::get_if<MemberExpr>(&func_expr)) {
+            // Re-evaluate object to get its type
+            visit_expr(program_.expressions[mem_expr->object.index], this);
+            TypeHandle obj_type = current_expr_type_;
+            if (!obj_type.is_null()) {
+                if (auto* named = std::get_if<NamedType>(&program_.types[obj_type.index])) {
+                    auto sym = find_symbol(named->name);
+                    if (sym && !sym->decl_handle.is_null()) {
+                        if (std::get_if<FlagDecl>(&program_.declarations[sym->decl_handle.index])) {
+                            std::string method(mem_expr->member.ptr(), mem_expr->member.len());
+                            if (method == "set" || method == "reset" || method == "has") {
+                                if (expr.arguments.size() != 1 || expr.named_args.size() != 0) {
+                                    report_error("Flag method '" + method + "' expects exactly 1 argument");
+                                } else {
+                                    visit_expr(program_.expressions[expr.arguments[0].index], this);
+                                }
+                                
+                                if (method == "has") {
+                                    PrimitiveType p{TokenType::BOOL};
+                                    program_.types.push_back(p);
+                                    current_expr_type_ = TypeHandle{static_cast<uint32_t>(program_.types.size() - 1)};
+                                } else {
+                                    current_expr_type_ = TypeHandle{0}; // void
+                                }
+                                return; // Handled, return early
                             }
                         }
                     }
@@ -727,27 +838,73 @@ void SemanticAnalyzer::visit(const MemberExpr& expr) {
         visit_expr(obj_expr, this);
         TypeHandle obj_type = current_expr_type_;
         
+        if (obj_type.is_null()) {
+            if (auto* id_expr = std::get_if<IdentifierExpr>(&obj_expr)) {
+                auto sym = find_symbol(id_expr->name);
+                if (sym && !sym->decl_handle.is_null()) {
+                    auto& decl = program_.declarations[sym->decl_handle.index];
+                    if (auto* flag_decl = std::get_if<FlagDecl>(&decl)) {
+                        bool found = false;
+                        for (const auto& mem : flag_decl->members) {
+                            if (mem.name == expr.member) {
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (!found) {
+                            report_error("Flag '" + std::string(id_expr->name.ptr(), id_expr->name.len()) + "' has no member '" + std::string(expr.member.ptr(), expr.member.len()) + "'");
+                        }
+                        NamedType named_type{id_expr->name};
+                        program_.types.push_back(named_type);
+                        current_expr_type_ = TypeHandle{static_cast<uint32_t>(program_.types.size() - 1)};
+                        return;
+                    } else if (auto* enum_decl = std::get_if<EnumDecl>(&decl)) {
+                        bool found = false;
+                        for (const auto& mem : enum_decl->members) {
+                            if (mem.name == expr.member) {
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (!found) {
+                            report_error("Enum '" + std::string(id_expr->name.ptr(), id_expr->name.len()) + "' has no member '" + std::string(expr.member.ptr(), expr.member.len()) + "'");
+                        }
+                        NamedType named_type{id_expr->name};
+                        program_.types.push_back(named_type);
+                        current_expr_type_ = TypeHandle{static_cast<uint32_t>(program_.types.size() - 1)};
+                        return;
+                    }
+                }
+            }
+        }
+        
         if (!obj_type.is_null()) {
             auto& type = program_.types[obj_type.index];
             if (std::get_if<OptionalType>(&type)) {
                 report_error("Cannot access member of optional type directly, use '?' to unwrap");
-            }
-        }
-        
-        // If it's a tuple, .size is allowed and yields a constant
-        if (auto* id = std::get_if<IdentifierExpr>(&obj_expr)) {
-            if (auto sym = find_symbol(id->name)) {
-                if (!sym->type.is_null()) {
-                    auto& type = program_.types[sym->type.index];
-                    if (std::get_if<TupleType>(&type)) {
+            } else if (std::get_if<TupleType>(&type)) {
+                std::string member_str(expr.member.ptr(), expr.member.len());
+                if (member_str != "size") {
+                    report_error("Tuples only have a 'size' property, tried to access '" + member_str + "'");
+                }
+            } else if (std::get_if<VariantType>(&type)) {
+                std::string member_str(expr.member.ptr(), expr.member.len());
+                if (member_str != "which" && member_str != "count") {
+                    report_error("Variants only have 'which' and 'count' properties, tried to access '" + member_str + "'");
+                }
+            } else if (auto* named = std::get_if<NamedType>(&type)) {
+                auto sym = find_symbol(named->name);
+                if (sym && !sym->decl_handle.is_null()) {
+                    auto& decl = program_.declarations[sym->decl_handle.index];
+                    if (auto* flag_decl = std::get_if<FlagDecl>(&decl)) {
                         std::string member_str(expr.member.ptr(), expr.member.len());
-                        if (member_str != "size") {
-                            report_error("Tuples only have a 'size' property, tried to access '" + member_str + "'");
-                        }
-                    } else if (std::get_if<VariantType>(&type)) {
-                        std::string member_str(expr.member.ptr(), expr.member.len());
-                        if (member_str != "which" && member_str != "count") {
-                            report_error("Variants only have 'which' and 'count' properties, tried to access '" + member_str + "'");
+                        if (member_str == "underlying") {
+                            current_expr_type_ = flag_decl->base_type;
+                        } else if (member_str == "set" || member_str == "reset" || member_str == "has") {
+                            // Method calls, type resolution handled in CallExpr or just dummy type
+                            current_expr_type_ = TypeHandle{0};
+                        } else {
+                            report_error("Flag types only support 'underlying', 'set', 'reset', and 'has'. Tried to access '" + member_str + "'");
                         }
                     }
                 }
@@ -773,7 +930,42 @@ void SemanticAnalyzer::visit(const TypeMemberExpr& expr) {
     bool is_numeric = is_signed_int || is_unsigned_int || is_float;
 
     if (!is_numeric) {
-        // Not a primitive numeric type — fall through to default behavior (enum/struct members)
+        auto sym = find_symbol(expr.type_name);
+        if (sym && !sym->decl_handle.is_null()) {
+            auto& decl = program_.declarations[sym->decl_handle.index];
+            if (auto* flag_decl = std::get_if<FlagDecl>(&decl)) {
+                bool found = false;
+                for (const auto& mem : flag_decl->members) {
+                    if (mem.name == expr.member) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    report_error("Flag '" + type_name + "' has no member '" + member + "'");
+                }
+                NamedType named_type{expr.type_name};
+                program_.types.push_back(named_type);
+                current_expr_type_ = TypeHandle{static_cast<uint32_t>(program_.types.size() - 1)};
+                return;
+            } else if (auto* enum_decl = std::get_if<EnumDecl>(&decl)) {
+                bool found = false;
+                for (const auto& mem : enum_decl->members) {
+                    if (mem.name == expr.member) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    report_error("Enum '" + type_name + "' has no member '" + member + "'");
+                }
+                NamedType named_type{expr.type_name};
+                program_.types.push_back(named_type);
+                current_expr_type_ = TypeHandle{static_cast<uint32_t>(program_.types.size() - 1)};
+                return;
+            }
+        }
+        report_error("Unknown type or property '" + type_name + "." + member + "'");
         return;
     }
 
@@ -1224,7 +1416,7 @@ void SemanticAnalyzer::visit(const ExportPackagesDecl& decl) {
 void SemanticAnalyzer::visit(const TypeAliasDecl& decl) {
     validate_attributes(decl.attributes);
     if (!decl.target_type.is_null()) visit_type(program_.types[decl.target_type.index], this);
-    add_symbol(decl.name, decl.target_type, DeclHandle{}, false);
+    // decl.name is already registered in Pass 1 with a valid DeclHandle
 }
 
 // ----------------------------------------------------------------------------
@@ -1410,7 +1602,7 @@ void SemanticAnalyzer::visit(const EnumDecl& decl_const) {
 
     decl.members = program_.allocate_array(flattened_members);
 
-    add_symbol(decl.name, TypeHandle{0});
+    // decl.name is already registered in Pass 1 with a valid DeclHandle
     if (!decl.base_type.is_null()) visit_type(program_.types[decl.base_type.index], this);
     for (auto& member : decl.members) {
         if (member.value && !member.value.value().is_null()) {
@@ -1436,7 +1628,7 @@ void SemanticAnalyzer::flatten_flag_bases(FlagDecl& decl, std::vector<EnumMember
 
 void SemanticAnalyzer::visit(const FlagDecl& decl_const) {
     FlagDecl& decl = const_cast<FlagDecl&>(decl_const);
-    add_symbol(decl.name, TypeHandle{0});
+    // decl.name is already registered in Pass 1 with a valid DeclHandle
 
     std::vector<EnumMember> flattened_members;
     flatten_flag_bases(decl, flattened_members);
