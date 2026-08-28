@@ -9,7 +9,7 @@ if(BUILD_TESTS)
         "${CMAKE_CURRENT_SOURCE_DIR}/test_*.ibex"
     )
     list(FILTER IBEX_SOURCE_TESTS EXCLUDE REGEX "/test_modules/")
-    list(FILTER IBEX_SOURCE_TESTS EXCLUDE REGEX "/test_illegal\\.ibex$")
+    list(FILTER IBEX_SOURCE_TESTS EXCLUDE REGEX "/test_illegal\.ibex$")
     add_test(NAME IbexSourceTests COMMAND test_runner ${IBEX_SOURCE_TESTS})
 
     add_test(NAME IbexIllegalTests
@@ -21,5 +21,16 @@ if(BUILD_TESTS)
         COMMAND test_runner
             "${CMAKE_CURRENT_SOURCE_DIR}/test_modules/main.ibex"
             --import-recursive "${CMAKE_CURRENT_SOURCE_DIR}/test_modules/math"
+    )
+
+    add_test(NAME IbexNestedModuleTests
+        COMMAND test_runner
+            --import-recursive "${CMAKE_CURRENT_SOURCE_DIR}/test_nested_modules"
+    )
+    set_tests_properties(IbexNestedModuleTests PROPERTIES WILL_FAIL TRUE)
+
+    add_test(NAME IbexStructParamModuleTests
+        COMMAND test_runner "${CMAKE_CURRENT_SOURCE_DIR}/test_modules/struct_param/main_struct.ibex"
+            --import-recursive "${CMAKE_CURRENT_SOURCE_DIR}/test_modules/struct_param/struct_mod"
     )
 endif()

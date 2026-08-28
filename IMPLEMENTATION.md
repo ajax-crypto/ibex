@@ -76,4 +76,4 @@ After `ModuleScanner` discovers all `.module.ibex` files, it performs a lightwei
 
 ## Parameterized Modules
 
-`ModuleDecl` carries a `std::vector<ModuleParam>` for typed parameters. `ImportDecl` carries `std::vector<ExprHandle>` for compile-time arguments. The parser enforces that parameterized imports use `as` aliases. `ModuleScanner::evaluate_conditional_exports()` binds parameter values and re-evaluates export declarations to determine which packages are available for a given parameterization.
+`ModuleDecl` carries a `std::vector<ModuleParam>` for typed parameters. `ImportDecl` carries `std::vector<ExprHandle>` for compile-time arguments. The parser enforces that parameterized imports use `as` aliases. `ModuleScanner::evaluate_conditional_exports()` binds parameter values and re-evaluates export declarations to determine which packages are available for a given parameterization. `SemanticAnalyzer` tracks parameterized argument states and folds `#param_name` expressions inside packages into their concrete literal values via `ConstExprEvaluator`.

@@ -203,6 +203,7 @@ TokenType Lexer::keyword_type(std::string_view lexeme) {
         {"default", TokenType::DEFAULT_KW},
         {"if", TokenType::IF},
         {"else", TokenType::ELSE},
+        {"is", TokenType::IS},
         {"for", TokenType::FOR},
         {"in", TokenType::IN},
         {"while", TokenType::WHILE},

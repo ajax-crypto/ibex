@@ -27,6 +27,7 @@ public:
     virtual void visit(const OptionalType& type) = 0;
     virtual void visit(const VariantType& type) = 0;
     virtual void visit(const RangeType& type) = 0;
+    virtual void visit(const VariadicType& type) = 0;
 };
 
 inline void visit_type(const Type& type, TypeVisitor* visitor) {
@@ -42,8 +43,11 @@ public:
     virtual void visit(const UnaryExpr& expr) = 0;
     virtual void visit(const LiteralExpr& expr) = 0;
     virtual void visit(const IdentifierExpr& expr) = 0;
+    virtual void visit(const ModuleParamExpr& expr) = 0;
     virtual void visit(const CallExpr& expr) = 0;
     virtual void visit(const CastExpr& expr) = 0;
+    virtual void visit(const IsExpr& expr) = 0;
+    virtual void visit(const TypeofExpr& expr) = 0;
     virtual void visit(const MemberExpr& expr) = 0;
     virtual void visit(const TypeMemberExpr& expr) = 0;
     virtual void visit(const IndexExpr& expr) = 0;

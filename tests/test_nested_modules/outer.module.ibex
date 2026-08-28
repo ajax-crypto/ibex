@@ -1,0 +1,3 @@
+module outer {}
+export package out_pkg;
+

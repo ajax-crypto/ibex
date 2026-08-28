@@ -28,6 +28,7 @@ enum class TokenType {
     RETURN,         // return
     IF,             // if
     ELSE,           // else
+    IS,             // is
     FOR,            // for
     IN,             // in (for-in loops)
     WHILE,          // while

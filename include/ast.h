@@ -114,8 +114,12 @@ struct RangeType {
     TypeHandle base_type;
 };
 
+// Variadic type: ...
+struct VariadicType {
+};
+
 // Type discriminated union
-using Type = std::variant<PrimitiveType, PointerType, ReferenceType, ArrayType, SliceType, NamedType, TypeofType, FunctionType, TupleType, OptionalType, VariantType, RangeType>;
+using Type = std::variant<PrimitiveType, PointerType, ReferenceType, ArrayType, SliceType, NamedType, TypeofType, FunctionType, TupleType, OptionalType, VariantType, RangeType, VariadicType>;
 
 // ============================================================================
 // EXPRESSIONS - Discriminated union for expressions
@@ -157,6 +161,10 @@ struct IdentifierExpr {
     Str name;
 };
 
+struct ModuleParamExpr {
+    Str name;
+};
+
 // Represents a named argument: name = expr
 struct NamedArg {
     Str name;
@@ -174,6 +182,15 @@ struct CallExpr {
 struct CastExpr {
     ExprHandle operand;
     TypeHandle target_type;
+};
+
+struct IsExpr {
+    ExprHandle operand;
+    TypeHandle target_type;
+};
+
+struct TypeofExpr {
+    ExprHandle expr;
 };
 
 struct MemberExpr {
@@ -298,8 +315,11 @@ using Expr = std::variant<
     UnaryExpr,
     LiteralExpr,
     IdentifierExpr,
+    ModuleParamExpr,
     CallExpr,
     CastExpr,
+    IsExpr,
+    TypeofExpr,
     MemberExpr,
     TypeMemberExpr,
     IndexExpr,

@@ -140,6 +140,7 @@ bool SemanticAnalyzer::analyze() {
             if (modules_.find(current_mod) == modules_.end()) {
                 modules_[current_mod] = {};
             }
+            module_params_[current_mod] = mod->parameters;
         } else if (auto* export_pkgs = std::get_if<ExportPackagesDecl>(&decl)) {
             if (!current_mod.empty()) {
                 for (Str p_name : export_pkgs->package_names) {
@@ -704,6 +705,41 @@ void SemanticAnalyzer::visit(const LiteralExpr& expr) {
     }
 }
 
+void SemanticAnalyzer::visit(const ModuleParamExpr& expr) {
+    if (current_module_name_.empty()) {
+        report_error("Module parameter reference '#" + std::string(expr.name.ptr(), expr.name.len()) + "' outside of a module");
+        current_expr_type_ = TypeHandle{};
+        return;
+    }
+
+    auto it = module_params_.find(current_module_name_);
+    if (it == module_params_.end() || it->second.empty()) {
+        report_error("Module '" + current_module_name_ + "' has no parameters");
+        current_expr_type_ = TypeHandle{};
+        return;
+    }
+
+    std::string param_name(expr.name.ptr(), expr.name.len());
+    TypeHandle param_type{};
+    bool found = false;
+    for (const auto& param : it->second) {
+        std::string pname(param.name.ptr(), param.name.len());
+        if (pname == param_name) {
+            param_type = param.type;
+            found = true;
+            break;
+        }
+    }
+
+    if (!found) {
+        report_error("Invalid module parameter '#" + param_name + "' for module '" + current_module_name_ + "'");
+        current_expr_type_ = TypeHandle{};
+        return;
+    }
+
+    current_expr_type_ = param_type;
+}
+
 void SemanticAnalyzer::visit(const IdentifierExpr& expr) {
     if (auto sym = find_symbol(expr.name)) {
         check_deprecated(*sym);
@@ -811,8 +847,18 @@ void SemanticAnalyzer::visit(const CallExpr& expr) {
     }
 
     if (func_decl) {
+        bool is_variadic = false;
+        if (!func_decl->parameters.empty()) {
+            const auto& last_param = func_decl->parameters.back();
+            if (!last_param.type.is_null()) {
+                if (std::holds_alternative<VariadicType>(program_.types[last_param.type.index])) {
+                    is_variadic = true;
+                }
+            }
+        }
+        
         // Check argument count
-        if (expr.arguments.size() + expr.named_args.size() > func_decl->parameters.size()) {
+        if (!is_variadic && (expr.arguments.size() + expr.named_args.size() > func_decl->parameters.size())) {
             report_error("Too many arguments for function '" + std::string(func_decl->name.ptr(), func_decl->name.len()) + "'");
         }
 
@@ -853,7 +899,7 @@ void SemanticAnalyzer::visit(const CallExpr& expr) {
                     is_optional = true;
                 } else if (!param.type.is_null()) {
                     auto& p_type = program_.types[param.type.index];
-                    if (std::holds_alternative<OptionalType>(p_type)) {
+                    if (std::holds_alternative<OptionalType>(p_type) || std::holds_alternative<VariadicType>(p_type)) {
                         is_optional = true;
                     }
                 }
@@ -878,6 +924,24 @@ void SemanticAnalyzer::visit(const CastExpr& expr) {
     if (!expr.target_type.is_null()) visit_type(program_.types[expr.target_type.index], this);
     if (!expr.operand.is_null()) visit_expr(program_.expressions[expr.operand.index], this);
     current_expr_type_ = expr.target_type;
+}
+
+void SemanticAnalyzer::visit(const IsExpr& expr) {
+    if (!expr.operand.is_null()) visit_expr(program_.expressions[expr.operand.index], this);
+    if (!expr.target_type.is_null()) visit_type(program_.types[expr.target_type.index], this);
+    // IsExpr always evaluates to boolean
+    PrimitiveType bool_type{TokenType::BOOL};
+    program_.types.push_back(bool_type);
+    current_expr_type_ = TypeHandle{static_cast<uint32_t>(program_.types.size() - 1)};
+}
+
+void SemanticAnalyzer::visit(const TypeofExpr& expr) {
+    if (!expr.expr.is_null()) visit_expr(program_.expressions[expr.expr.index], this);
+    // The type of `typeof(x)` in our meta-system isn't strictly defined, 
+    // but we can just say it returns the TypeofType structure for type reflection later
+    TypeofType t{expr.expr};
+    program_.types.push_back(t);
+    current_expr_type_ = TypeHandle{static_cast<uint32_t>(program_.types.size() - 1)};
 }
 
 void SemanticAnalyzer::visit(const MemberExpr& expr) {
@@ -1759,9 +1823,21 @@ void SemanticAnalyzer::visit(const PackageDecl& decl) {
     validate_attributes(decl.attributes);
     std::string pkg_name = std::string(decl.name.ptr(), decl.name.len());
     
-    // Scoped changes to current_package_
+    // Scoped changes to current_package_ and current_module_name_
     std::string prev_package = current_package_;
+    std::string prev_module = current_module_name_;
+    
     current_package_ = pkg_name;
+    current_module_name_ = "";
+    for (const auto& [mod_name, pkgs] : modules_) {
+        for (const auto& p : pkgs) {
+            if (p == pkg_name) {
+                current_module_name_ = mod_name;
+                break;
+            }
+        }
+        if (!current_module_name_.empty()) break;
+    }
     
     push_scope(); // Might not need this if we don't treat packages as lexical scopes, but good for local variables if any
     
@@ -1771,15 +1847,19 @@ void SemanticAnalyzer::visit(const PackageDecl& decl) {
     
     pop_scope();
     current_package_ = prev_package;
+    current_module_name_ = prev_module;
 }
 
 void SemanticAnalyzer::visit(const ModuleDecl& decl) {
     validate_attributes(decl.attributes);
+    std::string prev_mod = current_module_name_;
+    current_module_name_ = std::string(decl.name.ptr(), decl.name.len());
     push_scope();
     for (auto d : decl.declarations) {
         if (!d.is_null()) visit_decl(program_.declarations[d.index], this);
     }
     pop_scope();
+    current_module_name_ = prev_mod;
 }
 
 void SemanticAnalyzer::visit(const ImportDecl& decl) {
@@ -1803,12 +1883,19 @@ void SemanticAnalyzer::visit(const ImportDecl& decl) {
         
         // Evaluate all arguments as compile-time constants
         ConstExprEvaluator evaluator(program_);
+        evaluator.set_module_context(current_module_name_, &module_instantiated_args_, &module_params_);
+        std::vector<ConstValue> args;
         for (size_t i = 0; i < decl.module_args.size(); ++i) {
             auto val = evaluator.evaluate(decl.module_args[i]);
             if (!val.has_value()) {
                 report_error("Argument " + std::to_string(i + 1) + " to parameterized module '" +
                              mod_name + "' is not a compile-time constant");
+            } else {
+                args.push_back(val.value());
             }
+        }
+        if (args.size() == decl.module_args.size()) {
+            module_instantiated_args_[mod_name] = std::move(args);
         }
     }
     
@@ -1845,23 +1932,50 @@ void SemanticAnalyzer::visit(const FunctionDecl& decl) {
     std::cout << "Visiting FunctionDecl: " << std::string(decl.name.ptr(), decl.name.len()) << "\n";
     push_scope();
     bool seen_optional = false;
-    for (const auto& param : decl.parameters) {
+    bool has_variadic = false;
+    for (size_t i = 0; i < decl.parameters.size(); ++i) {
+        const auto& param = decl.parameters[i];
         bool is_optional = false;
         if (!param.type.is_null()) {
             auto& p_type = program_.types[param.type.index];
             if (std::holds_alternative<OptionalType>(p_type)) {
                 is_optional = true;
+            } else if (std::holds_alternative<VariadicType>(p_type)) {
+                if (i != decl.parameters.size() - 1) {
+                    report_error("Variadic parameter '" + std::string(param.name.ptr(), param.name.len()) + "' must be the last parameter");
+                }
+                has_variadic = true;
             }
         }
         
         if (is_optional) {
             seen_optional = true;
-        } else if (seen_optional) {
+        } else if (seen_optional && !has_variadic) {
             std::cout << "Warning: Optional parameter followed by non-optional parameter in function '" 
                       << std::string(decl.name.ptr(), decl.name.len()) << "'. Consider moving optional parameters to the end.\n";
         }
 
         add_symbol(param.name, param.type, DeclHandle{}, param.is_const, has_attribute(param.attributes, "unused"));
+    }
+
+    if (has_variadic && decl.parameters.size() == 1) {
+        // Inject a hidden first parameter for C-style va_args hookup
+        FunctionDecl& mut_decl = const_cast<FunctionDecl&>(decl);
+        std::vector<FunctionParameter> new_params;
+        
+        // Add hidden parameter
+        FunctionParameter hidden_param;
+        hidden_param.name = Str{"_hidden_va_start", 16};
+        PrimitiveType i32_type{TokenType::I32};
+        program_.types.push_back(i32_type);
+        hidden_param.type = TypeHandle{static_cast<uint32_t>(program_.types.size() - 1)};
+        hidden_param.is_const = true;
+        new_params.push_back(hidden_param);
+        
+        // Add original variadic parameter
+        new_params.push_back(decl.parameters[0]);
+        
+        mut_decl.parameters = program_.allocate_array(new_params);
     }
     if (!decl.body.is_null()) visit_stmt(program_.statements[decl.body.index], this);
     pop_scope();
@@ -2205,6 +2319,10 @@ void SemanticAnalyzer::check_escape_return(ExprHandle value) {
     }
 }
 void SemanticAnalyzer::visit(const RangeType& type) {
+    current_expr_type_ = TypeHandle{0};
+}
+
+void SemanticAnalyzer::visit(const VariadicType& type) {
     current_expr_type_ = TypeHandle{0};
 }
 

@@ -1,0 +1,8 @@
+module struct_mod(cfg: my_config);
+
+struct my_config {
+    id: i32;
+    active: bool;
+}
+
+export package core;

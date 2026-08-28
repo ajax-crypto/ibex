@@ -62,6 +62,18 @@ Compile-time partial application (Function Bindings):
 using add_five := #add(, 5);
 ```
 
+**Variadic Parameters (C-Style)**:
+Ibex supports C-style variadic parameters utilizing the `...` type syntax. They must be the last parameter.
+```ibex
+print_all: (fmt: text, args:...) -> void {
+    if typeof(args[0]) is i32 {
+        // ...
+    }
+}
+```
+*Note: If the variadic parameter is the only parameter (e.g. `foo: (p:...)`), the compiler automatically injects a hidden `_hidden_va_start` parameter to properly hook into C-style `va_args` ABIs.*
+
+
 ## 4. Pointers and References
 
 Ibex supports both pointers and references for memory access.
@@ -146,7 +158,7 @@ using WeakAlias = i32;            // Interchangeable with i32
 | Metaprogramming| Attributes `[[attr]]`, Function Bindings | Templates, Macros, `constexpr` |
 
 
-## 5. Modules and Packages
+## 10. Modules and Packages
 
 Ibex organizes code into packages and modules. Packages are defined as blocks, allowing you to scope declarations. A single file can contain multiple packages. If a package with the same name is declared multiple times in the same file or across different files, the compiler merges them into one namespace (emitting a warning to consolidate them).
 
@@ -188,6 +200,8 @@ package main {
 
 Each module must reside in its own subdirectory alongside its package `.ibex` files. The compiler treats all `.ibex` files in a module's directory as belonging to that module. Files that *consume* the module (i.e., import it) must be placed **outside** the module's directory.
 
+Nested modules are strictly prohibited. You cannot define a `.module.ibex` inside a subdirectory of another module, nor can you define multiple modules in the same directory.
+
 ```
 project/
 ├── math/                    # Module directory
@@ -198,8 +212,60 @@ project/
 └── ...
 ```
 
+### Parameterized Modules
 
-## 6. Numeric Literals & Type Properties
+Modules can take compile-time parameters. This is useful for configuring libraries or conditional compilation.
+
+```ibex
+// config.module.ibex
+module config(debug: bool, max_size: i32);
+
+export package utils;
+```
+
+When importing a parameterized module, you must provide constant literal arguments and assign it an alias:
+
+```ibex
+package app {
+    import config(true, 256).* as cfg;
+}
+```
+
+#### Struct Parameters
+Module parameters can also be user-defined structs, provided that the struct is declared directly inside the `.module.ibex` file. When importing the module, the struct can be initialized directly without needing to import it first:
+
+```ibex
+// network.module.ibex
+module network(config: NetConfig);
+
+struct NetConfig {
+    port: i32;
+    secure: bool;
+}
+
+export package tcp;
+```
+
+```ibex
+// client.ibex
+package client {
+    import network(NetConfig{port: 8080, secure: true}).* as net;
+}
+```
+
+Inside the module's packages, you can reference the parameters (and their fields) using the `#` prefix. These are evaluated as compile-time constants:
+
+```ibex
+// utils.ibex
+package utils {
+    clamp: (val: i32) -> i32 {
+        if val > #max_size { return #max_size; }
+        return val;
+    }
+}
+```
+
+## 11. Numeric Literals & Type Properties
 
 ### Type Suffixes
 Append a type suffix to any numeric literal to explicitly control its precision:
@@ -240,7 +306,7 @@ package props {
 }
 ```
 
-## 7. Circular Dependencies
+## 12. Circular Dependencies
 
 The compiler detects circular module dependencies and emits clear error messages:
 
@@ -248,35 +314,10 @@ The compiler detects circular module dependencies and emits clear error messages
 Circular dependency detected: a -> b -> a
 ```
 
+
 This occurs when module `a`'s packages import from module `b`, and module `b`'s packages import from module `a`.
 
-## 8. Parameterized Modules
-
-Modules can accept compile-time parameters:
-
-```ibex
-// config.module.ibex
-module config(debug: bool, max_size: i32);
-
-export package utils;
-// Conditional exports based on parameters (planned)
-// if debug { export package debug_tools; }
-
-const MAX_SIZE: i32 = max_size;
-```
-
-Importing a parameterized module requires providing arguments and an alias:
-
-```ibex
-package app {
-    import config(true, 256).* as cfg;
-    // Now use cfg.utils.symbol or cfg.MAX_SIZE
-}
-```
-
-All arguments must be compile-time constants (literals or `const` variables). Omitting the `as` alias on a parameterized import is a compilation error.
-
-## 9. Compiler Flags
+## 13. Compiler Flags
 
 | Flag | Description |
 |------|-------------|
@@ -308,3 +349,39 @@ package examples {
     }
 }
 ```
+## 14. Control Flow
+
+### Switch Statements
+Ibex supports `switch` statements for value-based branching. You can switch on integers as well as string (`text`) literals.
+
+```ibex
+package control {
+    parse_command: (cmd: text) -> i32 {
+        switch cmd {
+            case "start": return 1;
+            case "stop": return 0;
+            case "pause": return 2;
+            default: return -1;
+        }
+    }
+}
+```
+
+### For Loops
+The `for` loop is used to iterate over collections and ranges. The syntax relies on `for item in source { ... }`.
+Iterating over a scalar value is a semantic error; the source must be an array, a slice, or a range (e.g., `0..count`).
+
+```ibex
+package control {
+    loop_example: () -> void {
+        // Range iteration
+        for i in 0..10 {
+            // Iterates from 0 to 9
+        }
+
+        // Collection iteration (assuming arr is an array or slice)
+        // for item in arr { ... }
+    }
+}
+```
+

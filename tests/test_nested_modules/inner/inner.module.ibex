@@ -1,0 +1,3 @@
+module inner {}
+export package in_pkg;
+

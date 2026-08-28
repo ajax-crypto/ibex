@@ -1,0 +1,9 @@
+package core {
+    get_id: () -> i32 {
+        return #cfg.id;
+    }
+    
+    is_active: () -> bool {
+        return #cfg.active;
+    }
+}

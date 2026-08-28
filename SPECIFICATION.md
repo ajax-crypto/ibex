@@ -214,6 +214,10 @@ Applied via `[[name(args)]]`.
 ### 3.7 Initialization and Function Calls
 - **Named Arguments**: Function calls support explicit parameter binding via named arguments using the `=` operator (e.g., `func(name = val)`). This allows parameters to be passed out-of-order and provides self-documenting call sites.
 - **Designated Initializers**: Struct instantiation supports designated initializers mapping fields to expressions. Both `:` and `=` operators are valid mapping delimiters (e.g., `Point { x: 10, y: 20 }` or `Point { x = 10, y = 20 }`). Positional initialization is also supported by omitting the field name.
+- **Variadic Parameters**: Functions can take C-style variadic parameters using the `...` type syntax (e.g., `foo: (p:...) -> void`). The variadic parameter must be the last parameter.
+  - If it is the *only* parameter, a hidden `_hidden_va_start` parameter is injected.
+  - Type-checking of variadic parameters can be performed at compile time using `typeof(p[0]) is Type`.
+  - The size is accessible via `p.size`.
 
 ### 3.8 Inheritance and Composition
 - **Struct Composition**: `struct Derived : Base` embeds the fields of `Base` directly into `Derived` in memory, exactly as if they were declared manually in order. There are no virtual tables (v-tables) or dynamic dispatch overheads. Multiple bases (`struct Derived : B1, B2`) embed fields sequentially in declaration order.

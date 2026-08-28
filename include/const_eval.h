@@ -9,14 +9,27 @@
 
 namespace ibex {
 
-// A compile-time constant value
-using ConstValue = std::variant<int64_t, double, bool, std::string>;
+struct StructValue;
+using ConstValue = std::variant<int64_t, double, bool, std::string, std::shared_ptr<StructValue>>;
+
+struct StructValue {
+    std::string type_name;
+    std::unordered_map<std::string, ConstValue> fields;
+};
 
 // Evaluate AST expressions to compile-time constant values.
 // Used for module parameters, conditional exports, and const folding.
 class ConstExprEvaluator {
 public:
-    explicit ConstExprEvaluator(const Program& program) : program_(program) {}
+    explicit ConstExprEvaluator(const Program& program) : program_(program), module_args_(nullptr), module_params_(nullptr) {}
+
+    void set_module_context(const std::string& current_module,
+                            const std::unordered_map<std::string, std::vector<ConstValue>>* module_args,
+                            const std::unordered_map<std::string, std::vector<ModuleParam>>* module_params) {
+        current_module_ = current_module;
+        module_args_ = module_args;
+        module_params_ = module_params;
+    }
 
     // Evaluate an expression handle to a compile-time constant.
     // Returns std::nullopt if the expression is not const-evaluable.
@@ -44,8 +57,15 @@ private:
 
     std::optional<ConstValue> eval_literal(const LiteralExpr& expr);
     std::optional<ConstValue> eval_identifier(const IdentifierExpr& expr);
+    std::optional<ConstValue> eval_module_param(const ModuleParamExpr& expr);
+    std::optional<ConstValue> eval_struct_init(const StructInitExpr& expr);
+    std::optional<ConstValue> eval_member_expr(const MemberExpr& expr);
     std::optional<ConstValue> eval_binary(const BinaryExpr& expr);
     std::optional<ConstValue> eval_unary(const UnaryExpr& expr);
+
+    std::string current_module_;
+    const std::unordered_map<std::string, std::vector<ConstValue>>* module_args_;
+    const std::unordered_map<std::string, std::vector<ModuleParam>>* module_params_;
 };
 
 } // namespace ibex

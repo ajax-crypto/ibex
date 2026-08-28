@@ -1,6 +1,7 @@
 package utils {
     clamp: (val: i32, lo: i32, hi: i32) -> i32 {
         if val < lo { return lo; }
+        if val > #max_size { return #max_size; }
         if val > hi { return hi; }
         return val;
     }

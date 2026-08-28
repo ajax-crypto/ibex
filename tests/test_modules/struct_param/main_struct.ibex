@@ -1,0 +1,8 @@
+package main {
+    import struct_mod(my_config{id: 42, active: true}).* as sm;
+
+    main: () -> void {
+        x: i32 = sm.core.get_id();
+        y: bool = sm.core.is_active();
+    }
+}

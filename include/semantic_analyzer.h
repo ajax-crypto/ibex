@@ -3,6 +3,7 @@
 #include "ast.h"
 #include "ast_visitor.h"
 #include "type_registry.h"
+#include "const_eval.h"
 #include <vector>
 #include <string_view>
 #include <span>
@@ -62,14 +63,18 @@ public:
     void visit(const OptionalType& type) override;
     void visit(const VariantType& type) override;
     void visit(const RangeType& type) override;
+    void visit(const VariadicType& type) override;
 
     // ExprVisitor
     void visit(const BinaryExpr& expr) override;
     void visit(const UnaryExpr& expr) override;
     void visit(const LiteralExpr& expr) override;
     void visit(const IdentifierExpr& expr) override;
+    void visit(const ModuleParamExpr& expr) override;
     void visit(const CallExpr& expr) override;
     void visit(const CastExpr& expr) override;
+    void visit(const IsExpr& expr) override;
+    void visit(const TypeofExpr& expr) override;
     void visit(const MemberExpr& expr) override;
     void visit(const TypeMemberExpr& expr) override;
     void visit(const IndexExpr& expr) override;
@@ -162,6 +167,9 @@ private:
     
     // Global module registry: map module_name -> exported packages
     std::unordered_map<std::string, std::vector<std::string>> modules_;
+    std::string current_module_name_;
+    std::unordered_map<std::string, std::vector<ModuleParam>> module_params_;
+    std::unordered_map<std::string, std::vector<ConstValue>> module_instantiated_args_;
     std::string current_package_;
     
     // Imports for the current file

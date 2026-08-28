@@ -1454,11 +1454,17 @@ ExprHandle Parser::parse_bitwise_and() {
 ExprHandle Parser::parse_equality() {
     auto left = parse_comparison();
     
-    while (match(TokenType::EQ_EQ) || match(TokenType::NOT_EQ)) {
+    while (match(TokenType::EQ_EQ) || match(TokenType::NOT_EQ) || match(TokenType::IS)) {
         TokenType op = tokens_[current_ - 1].type;
-        auto right = parse_comparison();
-        BinaryExpr binop{left, op, right};
-        left = store_expr(binop);
+        if (op == TokenType::IS) {
+            TypeHandle target_type = parse_type();
+            IsExpr is_expr{left, target_type};
+            left = store_expr(is_expr);
+        } else {
+            auto right = parse_comparison();
+            BinaryExpr binop{left, op, right};
+            left = store_expr(binop);
+        }
     }
     
     return left;
@@ -1780,6 +1786,20 @@ ExprHandle Parser::parse_primary() {
     if (match(TokenType::SIZEOF)) {
         return parse_sizeof_expr();
     }
+    
+    if (match(TokenType::TYPEOF)) {
+        if (!match(TokenType::LPAREN)) {
+            error("Expected '(' after typeof");
+            return ExprHandle();
+        }
+        ExprHandle target = parse_expression();
+        if (!match(TokenType::RPAREN)) {
+            error("Expected ')' after typeof expression");
+            return ExprHandle();
+        }
+        TypeofExpr t_expr{target};
+        return store_expr(t_expr);
+    }
 
     if (match(TokenType::TRUE_LITERAL)) {
         LiteralExpr lit{LiteralExpr::Kind::BOOLEAN};
@@ -1797,19 +1817,18 @@ ExprHandle Parser::parse_primary() {
         LiteralExpr lit{LiteralExpr::Kind::NULL_VALUE};
         return store_expr(lit);
     }
-    // Function binding expression: #func(y=2, x=3)
+    // Compile-time prefix: #param (module param) OR #func(...) (function binding)
     if (match(TokenType::HASH)) {
         if (!check(TokenType::IDENTIFIER)) {
-            error("Expected function name after '#'");
+            error("Expected identifier after '#'");
             return ExprHandle();
         }
-        Token func_tok = advance();
-        Str target = alloc_str(func_tok.lexeme);
+        Token ident_tok = advance();
+        Str ident = alloc_str(ident_tok.lexeme);
 
-        if (!match(TokenType::LPAREN)) {
-            error("Expected '(' after '#" + func_tok.lexeme + "'");
-            return ExprHandle();
-        }
+        if (check(TokenType::LPAREN)) {
+            // It's a function binding: #func(...)
+            advance(); // Consume '('
 
         std::vector<NamedArg> bound_args;
         while (!check(TokenType::RPAREN) && !is_at_end()) {
@@ -1842,9 +1861,14 @@ ExprHandle Parser::parse_primary() {
         }
 
         BindingExpr bind;
-        bind.target_function = target;
+        bind.target_function = ident;
         bind.bound_args = program_.allocate_array(bound_args);
         return store_expr(bind);
+        } else {
+            // It's a module parameter reference
+            ModuleParamExpr expr{ident};
+            return store_expr(expr);
+        }
     }
     // Type member expressions: i32.max, f64.infinity, etc.
     if (is_primitive_type() || check(TokenType::BF16) || check(TokenType::FP16) ||
@@ -2314,10 +2338,15 @@ TypeHandle Parser::parse_base_type() {
     if (is_primitive_type()) {
         TokenType prim = current().type;
         advance();
-        PrimitiveType prim_type{prim};
-        return store_type(prim_type);
+        PrimitiveType p{prim};
+        return store_type(p);
     }
     
+    if (match(TokenType::DOT_DOT_DOT)) {
+        VariadicType var;
+        return store_type(var);
+    }
+
     if (check(TokenType::IDENTIFIER)) {
         std::string full_name = std::string(advance().lexeme);
         while (match(TokenType::DOT)) {

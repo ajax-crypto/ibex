@@ -29,29 +29,49 @@ void ModuleScanner::scan_directory(const std::filesystem::path& dir, bool recurs
         return;
     }
 
-    auto process_file = [&](const std::filesystem::path& path) {
-        if (path.extension() == ".ibex" && path.filename().string().find(".module.ibex") != std::string::npos) {
-            ModuleInfo mod_info;
-            if (parse_module_file(path, mod_info)) {
-                scan_for_packages(mod_info, path.parent_path(), recursive);
-                modules_.push_back(mod_info);
+    auto scan_recursive = [&](auto& self, const std::filesystem::path& current_dir, bool is_recursive, std::filesystem::path current_module_root) -> void {
+        bool found_module_in_this_dir = false;
+        std::filesystem::path module_file_here;
+
+        std::vector<std::filesystem::path> subdirs;
+        
+        for (const auto& entry : std::filesystem::directory_iterator(current_dir)) {
+            if (entry.is_regular_file()) {
+                auto path = entry.path();
+                if (path.extension() == ".ibex" && path.filename().string().find(".module.ibex") != std::string::npos) {
+                    if (found_module_in_this_dir) {
+                        report_error("Multiple .module.ibex files found in directory: " + current_dir.string() + " (" + module_file_here.filename().string() + " and " + path.filename().string() + ")");
+                        continue;
+                    }
+                    if (!current_module_root.empty()) {
+                        report_error("Nested modules are not allowed. Found " + path.filename().string() + " in " + current_dir.string() + " which is inside module root " + current_module_root.string());
+                        continue;
+                    }
+                    
+                    found_module_in_this_dir = true;
+                    module_file_here = path;
+                    
+                    ModuleInfo mod_info;
+                    if (parse_module_file(path, mod_info)) {
+                        scan_for_packages(mod_info, path.parent_path(), is_recursive);
+                        modules_.push_back(mod_info);
+                    }
+                }
+            } else if (entry.is_directory() && is_recursive) {
+                subdirs.push_back(entry.path());
             }
+        }
+        
+        if (found_module_in_this_dir) {
+            current_module_root = current_dir;
+        }
+        
+        for (const auto& subdir : subdirs) {
+            self(self, subdir, is_recursive, current_module_root);
         }
     };
 
-    if (recursive) {
-        for (const auto& entry : std::filesystem::recursive_directory_iterator(dir)) {
-            if (entry.is_regular_file()) {
-                process_file(entry.path());
-            }
-        }
-    } else {
-        for (const auto& entry : std::filesystem::directory_iterator(dir)) {
-            if (entry.is_regular_file()) {
-                process_file(entry.path());
-            }
-        }
-    }
+    scan_recursive(scan_recursive, dir, recursive, std::filesystem::path{});
 }
 
 bool ModuleScanner::parse_module_file(const std::filesystem::path& path, ModuleInfo& out_info) {
