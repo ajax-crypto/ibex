@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Akash Pradhan
+// SPDX-License-Identifier: MIT
+
 package main {
     import struct_mod(my_config{id: 42, active: true}).* as sm;
 

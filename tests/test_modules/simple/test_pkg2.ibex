@@ -1,1 +1,4 @@
+// Copyright (c) 2026 Akash Pradhan
+// SPDX-License-Identifier: MIT
+
 module mod { export package math; } import mod.math as m; const my_pi := m.PI;

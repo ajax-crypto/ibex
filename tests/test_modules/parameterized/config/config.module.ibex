@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Akash Pradhan
+// SPDX-License-Identifier: MIT
+
 module config(debug: bool, max_size: i32);
 
 export package utils;

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Akash Pradhan
+// SPDX-License-Identifier: MIT
+
 // Control-flow and compile-time expression coverage.
 package control_flow_tests {
     const MAX_ITEMS: i32 = 2 + 3 * 4;

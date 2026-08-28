@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Akash Pradhan
+// SPDX-License-Identifier: MIT
+
 // Source: test_functions.ibex
 package test_fns {
     using Callback = (i32, i32) -> i32;

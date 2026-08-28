@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Akash Pradhan
+// SPDX-License-Identifier: MIT
+
 // IDE Component Placeholders
 #include <iostream>
 #include <vector>

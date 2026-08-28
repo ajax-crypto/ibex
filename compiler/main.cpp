@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Akash Pradhan
+// SPDX-License-Identifier: MIT
+
 // Compiler main entry point
 #include "lexer.h"
 #include "parser.h"

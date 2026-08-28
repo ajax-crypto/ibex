@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Akash Pradhan
+// SPDX-License-Identifier: MIT
+
 #include "semantic_analyzer.h"
 #include "const_eval.h"
 #include <iostream>
