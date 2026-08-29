@@ -175,7 +175,11 @@ using WeakAlias = i32;            // Interchangeable with i32
 ## 8. Intrinsic Operators
 - `sizeof(type_or_expr)`: Returns size in bytes.
 - `typeof(expr)`: Returns the type of the expression, usable in declarations.
-- `as`: Explicit type casting.
+- `as`: Explicit type casting. Ibex enforces strong structural typing for casts:
+  - **Compatible Types**: Casting is allowed between compatible primitive sets: integer to floating point, integer to integer, integer to enum, and integer to flag.
+  - **Structural Identity**: User-defined types (such as `struct`, `enum`, or `flag`) can be cast to an entirely unrelated type *only if* both types are structurally identical (i.e. they share the exact same memory layout, field names, and sequence).
+  - **Strong Aliases**: Aliases defined with `[[strong]]` require `as` to be mixed with their underlying base type (as they are structurally identical).
+  - **Illegal Casts**: Irregular and opaque casts (such as arrays to text, or between structurally mismatched structs) are strictly rejected at compile-time.
 
 ## 9. Comparison with C++
 | Feature | Ibex | C++ |
