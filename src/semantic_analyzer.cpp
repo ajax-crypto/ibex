@@ -1056,7 +1056,7 @@ void SemanticAnalyzer::visit(const CallExpr& expr) {
         
     }
     
-    // Check if this is a method call on a flag type (set, reset, has)
+    // Check if this is a method call on a flag type (set, reset, has) or c_str() on text
     if (!func_decl && !expr.function.is_null()) {
         auto& func_expr = program_.expressions[expr.function.index];
         if (auto* mem_expr = std::get_if<MemberExpr>(&func_expr)) {
@@ -1065,10 +1065,22 @@ void SemanticAnalyzer::visit(const CallExpr& expr) {
             TypeHandle obj_type = current_expr_type_;
             if (!obj_type.is_null()) {
                 if (auto* named = std::get_if<NamedType>(&program_.types[obj_type.index])) {
+                    std::string type_name(named->name.ptr(), named->name.len());
+                    std::string method(mem_expr->member.ptr(), mem_expr->member.len());
+                    
+                    if ((type_name == "text" || type_name == "string") && method == "c_str") {
+                        if (!expr.arguments.empty() || !expr.named_args.empty()) {
+                            report_error("c_str() expects 0 arguments");
+                        }
+                        NamedType c_str_type{Str{"c_string", 8}};
+                        program_.types.push_back(c_str_type);
+                        current_expr_type_ = TypeHandle{static_cast<uint32_t>(program_.types.size() - 1)};
+                        return;
+                    }
+                    
                     auto sym = find_symbol(named->name);
                     if (sym && !sym->decl_handle.is_null()) {
                         if (std::get_if<FlagDecl>(&program_.declarations[sym->decl_handle.index])) {
-                            std::string method(mem_expr->member.ptr(), mem_expr->member.len());
                             if (method == "set" || method == "reset" || method == "has") {
                                 if (expr.arguments.size() != 1 || expr.named_args.size() != 0) {
                                     report_error("Flag method '" + method + "' expects exactly 1 argument");
@@ -1089,8 +1101,25 @@ void SemanticAnalyzer::visit(const CallExpr& expr) {
                     }
                 }
             }
+        } else if (auto* ffi_expr = std::get_if<FFIAccessExpr>(&func_expr)) {
+            // Evaluate FFI call
+            for (const auto& arg : expr.arguments) {
+                visit_expr(program_.expressions[arg.index], this);
+            }
+            for (const auto& narg : expr.named_args) {
+                visit_expr(program_.expressions[narg.value.index], this);
+            }
+            // Return void or a generic type for FFI. For now, we don't know the exact C return type.
+            // C calls can return int, void*, etc. Let's return void (null handle) to avoid type checking issues,
+            // or return a special FFI result type if needed.
+            // To be safe, we'll return a generic unknown type, or just i32 (since many C functions return int).
+            // The safest is void (null handle). If they use the result, they should cast it.
+            // Actually, we'll return i32 as a sensible default for C functions like malloc/printf if they assign it.
+            PrimitiveType i32_type{TokenType::I32};
+            program_.types.push_back(i32_type);
+            current_expr_type_ = TypeHandle{static_cast<uint32_t>(program_.types.size() - 1)};
+            return;
         }
-        
     }
 
     if (func_decl) {
@@ -1406,6 +1435,19 @@ void SemanticAnalyzer::visit(const MemberExpr& expr) {
                     report_error("Variants only have 'which' and 'count' properties, tried to access '" + member_str + "'");
                 }
             } else if (auto* named = std::get_if<NamedType>(&type)) {
+                std::string type_name(named->name.ptr(), named->name.len());
+                std::string member_str(expr.member.ptr(), expr.member.len());
+                
+                if (type_name == "c_string" && member_str == "bytes") {
+                    PrimitiveType byte_type{TokenType::BYTE};
+                    program_.types.push_back(byte_type);
+                    TypeHandle byte_th{static_cast<uint32_t>(program_.types.size() - 1)};
+                    PointerType ptr_type{byte_th};
+                    program_.types.push_back(ptr_type);
+                    current_expr_type_ = TypeHandle{static_cast<uint32_t>(program_.types.size() - 1)};
+                    return;
+                }
+                
                 auto sym = find_symbol(named->name);
                 if (sym && !sym->decl_handle.is_null()) {
                     auto& decl = program_.declarations[sym->decl_handle.index];
@@ -2268,6 +2310,11 @@ void SemanticAnalyzer::visit(const TypeAliasDecl& decl) {
     // decl.name is already registered in Pass 1 with a valid DeclHandle
 }
 
+void SemanticAnalyzer::visit(const ForeignBlockDecl& decl) {
+    validate_attributes(decl.attributes);
+    // Nothing more to check semantically for foreign blocks right now
+}
+
 // ----------------------------------------------------------------------------
 // Declarations
 // ----------------------------------------------------------------------------
@@ -2725,6 +2772,11 @@ void SemanticAnalyzer::visit(const RangeType& type) {
 }
 
 void SemanticAnalyzer::visit(const VariadicType& type) {
+    current_expr_type_ = TypeHandle{0xffffffff};
+}
+
+void SemanticAnalyzer::visit(const FFIAccessExpr& expr) {
+    report_error("FFI access must be called immediately");
     current_expr_type_ = TypeHandle{0xffffffff};
 }
 

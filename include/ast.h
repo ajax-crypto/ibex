@@ -205,6 +205,12 @@ struct MemberExpr {
     Str member;
 };
 
+// FFI Access expression: accessing C functions (e.g., c::malloc)
+struct FFIAccessExpr {
+    Str language; // e.g., "c"
+    Str function_name; // e.g., "malloc"
+};
+
 // Type member expression: Static members accessed on types (e.g., S.x where S is a struct)
 // Can be used for enums values (Color.Red), static members (S.x), etc.
 struct TypeMemberExpr {
@@ -345,7 +351,8 @@ using Expr = std::variant<
     UnwrapExpr,
     DereferenceExpr,
     RefExpr,
-    RangeExpr
+    RangeExpr,
+    FFIAccessExpr
 >;
 
 // ============================================================================
@@ -577,6 +584,12 @@ struct TypeAliasDecl {
     bool is_strong;
 };
 
+struct ForeignBlockDecl {
+    std::span<Attribute> attributes;
+    Str language;
+    Str code;
+};
+
 // Declaration discriminated union
 using Decl = std::variant<
     FunctionDecl,
@@ -590,7 +603,8 @@ using Decl = std::variant<
     ModuleDecl,
     ImportDecl,
     ExportPackagesDecl,
-    TypeAliasDecl
+    TypeAliasDecl,
+    ForeignBlockDecl
 >;
 
 // ============================================================================

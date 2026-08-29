@@ -240,5 +240,13 @@ illegal_casts: () -> void {
     sc := sa as StructC; // Error: mismatched layout
 }
 
+#test "illegal_ffi"
+{
+    var str = "hello";
+    var c = str.c_str(123); // Error: c_str expects 0 arguments
+    var ptr = c.not_bytes;  // Error: c_string only has bytes
+    var m = c::malloc; // Error: FFI must be called
+}
+
 }
 

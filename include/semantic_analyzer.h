@@ -97,6 +97,7 @@ public:
     void visit(const UnwrapExpr& expr) override;
     void visit(const DereferenceExpr& expr) override;
     void visit(const RefExpr& expr) override;
+    void visit(const FFIAccessExpr& expr) override;
     void visit(const RangeExpr& expr) override;
 
     // StmtVisitor
@@ -128,6 +129,7 @@ public:
     void visit(const ExportPackagesDecl& decl) override;
 
     void visit(const TypeAliasDecl& decl) override;
+    void visit(const ForeignBlockDecl& decl) override;
 
 private:
     void push_scope();

@@ -520,3 +520,13 @@ LambdaParam ::= Identifier ":" Type
   - **Structural Casting**: A user-defined type (e.g. `struct`) can only be cast to a different user-defined type if they share an identical structural memory layout. The compiler strictly verifies that both types possess the exact same fields in the same sequence with matching intrinsic types.
   - **Strong Aliases**: Aliases declared with `[[strong]]` require `as` to implicitly drop the strong boundary back to the underlying base type.
   - **Illegal Combinations**: Opaque casting (e.g. array to `text`, array to integer) is universally rejected at compile-time.
+
+### 3.17 C Foreign Function Interface (FFI)
+- **Language Blocks**: C headers and native code can be imported using language blocks: `[[language="c"]] { #include <stdlib.h> }`
+- **FFI Operator**: Native C functions and variables are invoked using the double colon syntax: c::malloc(x)
+- **String Mapping**: The implicit c_str() method converts Ibex 	ext into a native C c_string struct. It exposes a .bytes pointer (of type const byte*) for zero-cost interoperability with char* C functions.
+
+### 3.17 C Foreign Function Interface (FFI)
+- **Language Blocks**: C headers and native code can be imported using language blocks: [[language="c"]] { #include <stdlib.h> }
+- **FFI Operator**: Native C functions and variables are invoked using the double colon syntax: c::malloc(x)
+- **String Mapping**: The implicit c_str() method converts Ibex 	ext into a native C c_string struct. It exposes a .bytes pointer (of type const byte*) for zero-cost interoperability with char* C functions.

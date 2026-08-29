@@ -418,3 +418,37 @@ package control {
 }
 ```
 
+
+## 9. C FFI (Foreign Function Interface)
+
+Ibex currently targets the C11 standard for its runtime layer, offering zero-cost, explicit native interoperability.
+
+### C Language Blocks
+Include C headers dynamically inside Ibex code via the [[language="c"]] block:
+
+`ibex
+[[language="c"]] {
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+}
+`
+
+### Native Operator (::)
+To invoke standard C functions, simply call them with the language prefix and double colon :: operator:
+`ibex
+var memory = c::malloc(1024);
+c::free(memory);
+`
+
+### String Interpolation and Pointers
+While Ibex maps primitives directly to their C equivalents, 	ext literals require an explicit conversion step to interop with char*.
+
+Use the implicit .c_str() method to spawn a C-compatible null-terminated c_string, and .bytes to access the raw pointer:
+`ibex
+var greeting = "Hello C";
+var c_greeting = greeting.c_str();
+
+c::printf("%s\n", c_greeting); // Implicitly degrades to char*
+var raw_pointer = c_greeting.bytes; // const byte*
+`

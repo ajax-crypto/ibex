@@ -219,6 +219,61 @@ DeclHandle Parser::parse_declaration() {
     if (check(TokenType::FLAG)) { advance(); return parse_flag_decl(attrs); }
     if (check(TokenType::USING)) { advance(); return parse_using_decl(attrs); }
 
+    if (check(TokenType::LBRACE)) {
+        bool is_foreign = false;
+        std::string lang = "";
+        for (const auto& attr : attrs) {
+            std::string attr_name(attr.name.ptr(), attr.name.len());
+            if (attr_name == "language") {
+                is_foreign = true;
+                if (!attr.args.empty()) {
+                    if (auto* lit = std::get_if<LiteralExpr>(&program_.expressions[attr.args[0].index])) {
+                        if (lit->kind == LiteralExpr::Kind::STRING) {
+                            lang = std::string(lit->value.string_value.value.ptr(), lit->value.string_value.value.len());
+                        }
+                    }
+                }
+            }
+        }
+        
+        if (is_foreign) {
+            advance(); // consume '{'
+            
+            std::string c_code = "";
+            if (!is_at_end()) {
+                int last_line = tokens_[current_].line;
+                int last_col = tokens_[current_].column;
+                
+                while (!check(TokenType::RBRACE) && !is_at_end()) {
+                    Token t = advance();
+                    while (last_line < t.line) {
+                        c_code += "\n";
+                        last_line++;
+                        last_col = 1;
+                    }
+                    while (last_col < t.column) {
+                        c_code += " ";
+                        last_col++;
+                    }
+                    c_code += t.lexeme;
+                    last_col += t.lexeme.length();
+                }
+            }
+            
+            if (!match(TokenType::RBRACE)) {
+                error("Expected '}' after foreign language block");
+            }
+            
+            ForeignBlockDecl decl;
+            decl.attributes = attrs;
+            decl.language = alloc_str(lang);
+            decl.code = alloc_str(c_code);
+            
+            program_.declarations.push_back(decl);
+            return DeclHandle{static_cast<uint32_t>(program_.declarations.size() - 1)};
+        }
+    }
+
     if (check(TokenType::CONST_KW)) {
         if (peek().type != TokenType::LPAREN) {
             advance();
@@ -1950,7 +2005,19 @@ ExprHandle Parser::parse_primary() {
         return store_expr(lit);
     }    
     if (match(TokenType::IDENTIFIER)) {
-        IdentifierExpr id{alloc_str(tokens_[current_ - 1].lexeme)};
+        Token id_tok = tokens_[current_ - 1];
+        if (match(TokenType::COLON_COLON)) {
+            if (!match(TokenType::IDENTIFIER)) {
+                error("Expected function name after '::'");
+                return ExprHandle();
+            }
+            Token func_tok = tokens_[current_ - 1];
+            FFIAccessExpr ffi;
+            ffi.language = alloc_str(id_tok.lexeme);
+            ffi.function_name = alloc_str(func_tok.lexeme);
+            return store_expr(ffi);
+        }
+        IdentifierExpr id{alloc_str(id_tok.lexeme)};
         return store_expr(id);
     }
     

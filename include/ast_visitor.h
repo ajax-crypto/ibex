@@ -47,6 +47,7 @@ public:
     virtual void visit(const LiteralExpr& expr) = 0;
     virtual void visit(const IdentifierExpr& expr) = 0;
     virtual void visit(const ModuleParamExpr& expr) = 0;
+    virtual void visit(const FFIAccessExpr& expr) = 0;
     virtual void visit(const CallExpr& expr) = 0;
     virtual void visit(const CastExpr& expr) = 0;
     virtual void visit(const IsExpr& expr) = 0;
@@ -116,6 +117,7 @@ public:
     virtual void visit(const ImportDecl& decl) = 0;
     virtual void visit(const ExportPackagesDecl& decl) = 0;
     virtual void visit(const TypeAliasDecl& decl) = 0;
+    virtual void visit(const ForeignBlockDecl& decl) = 0;
 };
 
 inline void visit_decl(const Decl& decl, DeclVisitor* visitor) {

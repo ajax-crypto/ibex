@@ -1,0 +1,19 @@
+[[language="c"]] {
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+}
+
+// Test string conversion and basic C calls
+#test "ffi_basic"
+{
+    var str = "Hello C FFI";
+    var cstr = str.c_str(); // Should evaluate to c_string
+    var ptr = cstr.bytes;   // Should evaluate to byte pointer
+    
+    // Call C functions
+    c::printf("%s\n", cstr);
+    
+    var mem = c::malloc(1024);
+    c::free(mem);
+}
