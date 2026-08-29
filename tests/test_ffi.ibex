@@ -1,19 +1,65 @@
-[[language="c"]] {
+// Test C FFI - Foreign Function Interface
+// This module tests calling C functions from Ibex code
+
+[[language("c")]] {
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <math.h>
 }
 
-// Test string conversion and basic C calls
-#test "ffi_basic"
-{
-    var str = "Hello C FFI";
-    var cstr = str.c_str(); // Should evaluate to c_string
-    var ptr = cstr.bytes;   // Should evaluate to byte pointer
+// Test basic C function calls
+test_ffi_malloc_free: () -> void {
+    // Allocate 1024 bytes using C's malloc
+    mem := c::malloc(1024);
     
-    // Call C functions
-    c::printf("%s\n", cstr);
-    
-    var mem = c::malloc(1024);
+    // Free the memory using C's free
     c::free(mem);
+}
+
+// Test C math functions
+test_ffi_math: () -> void {
+    // Test sqrt function from math.h
+    x: f64 = 16.0f64;
+    result := c::sqrt(x);
+    
+    // Result should be approximately 4.0
+}
+
+// Test string conversion and C string operations
+test_ffi_strings: () -> void {
+    str := "Hello C FFI";
+    
+    // Convert to C string
+    cstr := str.c_str();
+    
+    // Access the underlying bytes pointer (const byte*)
+    ptr := cstr.bytes;
+    
+    // Call C functions that expect strings
+    c::printf("String: %s\n", cstr);
+    
+    // Test strlen from string.h
+    len := c::strlen(cstr);
+}
+
+// Test basic integer operations
+test_ffi_integer_args: () -> void {
+    // Test integer arguments to C functions
+    a: i32 = 5;
+    b: i32 = 10;
+    
+    // Allocate memory - malloc takes size_t (usually u64)
+    mem := c::malloc(100u64);
+    c::free(mem);
+}
+
+// Test type compatibility
+test_ffi_type_checking: () -> void {
+    // Testing implicit conversions where applicable
+    value: i32 = 42;
+    
+    // These should work if types map correctly
+    ptr := c::malloc(1024u64);
+    c::free(ptr);
 }

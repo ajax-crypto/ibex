@@ -339,7 +339,166 @@ package props {
 }
 ```
 
-## 12. Circular Dependencies
+## 12. C Foreign Function Interface (FFI) Quick Reference
+
+Ibex provides seamless interoperability with C libraries through the Foreign Function Interface.
+
+### Basic Usage
+
+**Import C Headers**:
+```ibex
+[[language("c")]] {
+    #include <stdio.h>
+    #include <stdlib.h>
+    #include <string.h>
+}
+```
+
+**Call C Functions**:
+```ibex
+main: () -> void {
+    // Allocate memory (malloc expects size_t, which maps to u64)
+    ptr := c::malloc(256u64);
+    
+    // Use other functions
+    c::printf("Hello from Ibex!\n");
+    
+    // Free memory
+    c::free(ptr);
+}
+```
+
+### Type Mappings
+
+| C Type | Ibex Type | Example |
+|--------|-----------|---------|
+| `int` | `i32` | `42i32` |
+| `float` | `f32` | `3.14f32` |
+| `double` | `f64` | `2.71f64` |
+| `char` | `byte` | `65byte` |
+| `void` | (none) | Return type only |
+| `int*` | `*i32` | Pointer to i32 |
+| `char*` | `*byte` | Pointer to byte |
+
+### String Conversion
+
+Ibex `text` values convert to C strings automatically via `c_str()`:
+
+```ibex
+greet: (name: text) -> void {
+    c_name := name.c_str();  // Convert to c_string
+    ptr := c_name.bytes;     // Extract const byte* pointer
+    c::printf("Hello, %s!\n", c_name);  // Pass to C functions
+}
+```
+
+The `c_string` struct has `.bytes: const byte*` for zero-cost interoperability.
+
+### Common Patterns
+
+**File I/O**:
+```ibex
+[[language("c")]] {
+    #include <stdio.h>
+}
+
+read_file: (filename: text) -> void {
+    f_name := filename.c_str();
+    file := c::fopen(f_name, "rb");
+    // Read operations...
+    c::fclose(file);
+}
+```
+
+**Memory Operations**:
+```ibex
+[[language("c")]] {
+    #include <string.h>
+    #include <stdlib.h>
+}
+
+copy_data: (size: u64) -> *byte {
+    src := c::malloc(size);
+    dst := c::malloc(size);
+    c::memcpy(dst, src, size);
+    c::free(src);
+    return dst;
+}
+```
+
+**Math Functions**:
+```ibex
+[[language("c")]] {
+    #include <math.h>
+}
+
+distance: (x: f64, y: f64) -> f64 {
+    x_sq := x * x;
+    y_sq := y * y;
+    return c::sqrt(x_sq + y_sq);
+}
+```
+
+### Compiler Invocation
+
+Configure FFI via CLI:
+
+```bash
+# With GCC
+ibexc --c-compiler gcc -I/usr/include program.ibex
+
+# With MSVC
+ibexc --c-compiler msvc -I"C:\Program Files\LLVM\include" program.ibex
+
+# With custom defines
+ibexc --c-compiler gcc -DVERSION=2 -DDEBUG program.ibex
+```
+
+### Error Handling
+
+Type mismatches are caught at compile time:
+
+```ibex
+// ✗ ERROR: malloc expects u64 (size_t), got i32
+memory := c::malloc(1024);
+
+// ✓ CORRECT: Explicitly use u64 suffix
+memory := c::malloc(1024u64);
+
+// ✗ ERROR: FFI functions must be called (not stored)
+malloc_func := c::malloc;
+
+// ✓ CORRECT: Call FFI directly
+memory := c::malloc(100u64);
+```
+
+### Best Practices
+
+1. **Always use type suffixes** for clarity: `1024u64` instead of `1024`
+2. **Capture and manage return values**: Don't ignore malloc/fopen results
+3. **Check for NULL**: Verify pointer validity before use
+4. **Convert strings properly**: Always use `c_str()` for text → C string
+5. **Use multiple language blocks** for organizational clarity
+
+### Limitations
+
+❌ **Not Supported**:
+- C structs / unions
+- Function pointers
+- Limited variadic function support
+- C++ functions
+- Custom typedef names
+
+✅ **Supported**:
+- Basic types (int, float, double, char)
+- Pointers to basic types
+- Standard library functions
+- Custom C functions
+- String interoperability
+
+For detailed FFI architecture, see IMPLEMENTATION.md section on C Foreign Function Interface.
+
+## 13. Circular Dependencies
 
 The compiler detects circular module dependencies and emits clear error messages:
 

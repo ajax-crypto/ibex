@@ -36,6 +36,7 @@ int main(int argc, char** argv) {
     ibex::ModuleScanner scanner(program, arena);
     
     std::vector<std::string> input_files;
+    ibex::FFIConfig ffi_config;
     
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -43,6 +44,12 @@ int main(int argc, char** argv) {
             scanner.add_search_path(argv[++i], false);
         } else if (arg == "--import-recursive" && i + 1 < argc) {
             scanner.add_search_path(argv[++i], true);
+        } else if (arg == "--c-compiler" && i + 1 < argc) {
+            ffi_config.c_compiler_path = argv[++i];
+        } else if (arg.starts_with("-I")) {
+            ffi_config.include_paths.push_back(arg.substr(2));
+        } else if (arg.starts_with("-D")) {
+            ffi_config.definitions.push_back(arg.substr(2));
         } else {
             input_files.push_back(arg);
         }
@@ -125,7 +132,7 @@ int main(int argc, char** argv) {
     std::cerr << "Semantic analysis...\n" << std::flush;
     try {
         ibex::TypeRegistry type_registry(arena);
-        ibex::SemanticAnalyzer semantic(program, type_registry);
+        ibex::SemanticAnalyzer semantic(program, type_registry, ffi_config);
         semantic.analyze();
         
         // Print any warnings

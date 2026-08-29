@@ -10,10 +10,10 @@ if(BUILD_TESTS)
     )
     list(FILTER IBEX_SOURCE_TESTS EXCLUDE REGEX "/test_modules/")
     list(FILTER IBEX_SOURCE_TESTS EXCLUDE REGEX "/test_illegal\.ibex$")
-    add_test(NAME IbexSourceTests COMMAND test_runner ${IBEX_SOURCE_TESTS})
+    add_test(NAME IbexSourceTests COMMAND test_runner --c-compiler "${CMAKE_CURRENT_SOURCE_DIR}/mock_cc.bat" ${IBEX_SOURCE_TESTS})
 
     add_test(NAME IbexIllegalTests
-        COMMAND test_runner "${CMAKE_CURRENT_SOURCE_DIR}/test_illegal.ibex"
+        COMMAND test_runner --c-compiler "${CMAKE_CURRENT_SOURCE_DIR}/mock_cc.bat" "${CMAKE_CURRENT_SOURCE_DIR}/test_illegal.ibex"
     )
     set_tests_properties(IbexIllegalTests PROPERTIES WILL_FAIL TRUE)
 

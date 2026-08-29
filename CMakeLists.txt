@@ -64,8 +64,23 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(glaze)
 
+# Add tree-sitter library
+FetchContent_Declare(
+    tree_sitter
+    GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter.git
+    GIT_TAG v0.20.8
+)
+FetchContent_Declare(
+    tree_sitter_c
+    GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-c.git
+    GIT_TAG master
+)
+FetchContent_Populate(tree_sitter)
+FetchContent_Populate(tree_sitter_c)
+
 # Include directories
 include_directories(BEFORE ${PROJECT_SOURCE_DIR}/include)
+include_directories(BEFORE ${tree_sitter_SOURCE_DIR}/lib/include)
 
 # Compiler library
 add_subdirectory(src)

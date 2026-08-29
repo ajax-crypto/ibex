@@ -522,11 +522,94 @@ LambdaParam ::= Identifier ":" Type
   - **Illegal Combinations**: Opaque casting (e.g. array to `text`, array to integer) is universally rejected at compile-time.
 
 ### 3.17 C Foreign Function Interface (FFI)
-- **Language Blocks**: C headers and native code can be imported using language blocks: `[[language="c"]] { #include <stdlib.h> }`
-- **FFI Operator**: Native C functions and variables are invoked using the double colon syntax: c::malloc(x)
-- **String Mapping**: The implicit c_str() method converts Ibex 	ext into a native C c_string struct. It exposes a .bytes pointer (of type const byte*) for zero-cost interoperability with char* C functions.
 
-### 3.17 C Foreign Function Interface (FFI)
-- **Language Blocks**: C headers and native code can be imported using language blocks: [[language="c"]] { #include <stdlib.h> }
-- **FFI Operator**: Native C functions and variables are invoked using the double colon syntax: c::malloc(x)
-- **String Mapping**: The implicit c_str() method converts Ibex 	ext into a native C c_string struct. It exposes a .bytes pointer (of type const byte*) for zero-cost interoperability with char* C functions.
+The Ibex language provides first-class interoperability with C libraries through a Foreign Function Interface (FFI). This allows seamless calling of C functions, automatic type mapping, and safe string conversions.
+
+#### Language Blocks
+
+C headers and preprocessor directives are imported using language attribute blocks:
+
+```ibex
+[[language("c")]] {
+    #include <stdlib.h>
+    #include <stdio.h>
+    #include <string.h>
+}
+```
+
+- Only C (`language="c"`) is currently supported.
+- Multiple language blocks can be declared in a single Ibex file.
+- Code within language blocks is concatenated, preprocessed (via `-E`), and parsed using tree-sitter's C grammar.
+
+#### FFI Function Calls
+
+Native C functions are invoked using the double colon (`::`) FFI operator:
+
+```ibex
+mem := c::malloc(1024u64);    // Allocate 1024 bytes
+c::printf("Value: %d\n", 42i32);
+c::free(mem);
+```
+
+- `c` is the namespace identifier for C functions.
+- Functions are looked up in the preprocessed C headers.
+- Arguments are validated against the C function signature discovered by tree-sitter parsing.
+- Return types are automatically mapped to Ibex types.
+
+#### Type Mapping
+
+C types are automatically mapped to Ibex equivalents during FFI parsing:
+
+| C Type | Ibex Type | Notes |
+|--------|-----------|-------|
+| `int`, `int32_t` | `i32` | Signed 32-bit integer |
+| `float` | `f32` | 32-bit floating point |
+| `double` | `f64` | 64-bit floating point |
+| `char` | `byte` | Single byte / u8 |
+| `void` | (void) | No return value |
+| `T*` | `*T` | Pointer type |
+
+#### String Interoperability
+
+Ibex `text` values provide automatic conversion to C strings for zero-cost FFI interoperability:
+
+```ibex
+str := "Hello";
+c_str := str.c_str();  // Converts to c_string struct
+ptr := c_str.bytes;    // Extract const byte* pointer for C functions
+
+c::printf("%s\n", c_str);  // Safe: c_string accepted where char* expected
+```
+
+The `c_string` struct has the following layout:
+- `.bytes: const byte*` — Pointer to the underlying UTF-8 string data
+- Automatically passed to C functions expecting `char*` or `const char*`
+
+#### Compiler Configuration
+
+FFI parsing requires a C compiler to preprocess headers. Configure via CLI:
+
+```bash
+ibexc --c-compiler gcc -I/usr/include -DNDEBUG input.ibex
+ibexc --c-compiler msvc -I"C:\Program Files\LLVM\include" input.ibex
+```
+
+Options:
+- `--c-compiler <path>` — Path to C compiler executable
+- `-I<path>` — Add include search path (can be repeated)
+- `-D<macro>` — Define preprocessor macro (can be repeated)
+
+#### Error Handling
+
+Type mismatches in FFI calls are caught at compile time:
+
+```ibex
+// Error: c::malloc expects u64, got i32
+mem := c::malloc(100);  
+
+// Error: FFI functions must be called immediately (not stored as references)
+f := c::malloc;  // Error!
+```
+
+If headers cannot be parsed, the compiler issues a warning and assumes `i32` return type for fallback compatibility.
+

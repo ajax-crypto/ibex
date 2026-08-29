@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "semantic_analyzer.h"
+#include "ffi_parser.h"
 #include "const_eval.h"
 #include <iostream>
 #include <functional>
@@ -42,14 +43,15 @@ static bool are_types_compatible(const Program& program, TypeHandle a, TypeHandl
     return false;
 }
 
-SemanticAnalyzer::SemanticAnalyzer(Program& program, TypeRegistry& type_registry)
-    : program_(program), type_registry_(type_registry) {
+SemanticAnalyzer::SemanticAnalyzer(Program& program, TypeRegistry& type_registry, const FFIConfig& ffi_config)
+    : program_(program), type_registry_(type_registry), ffi_config_(ffi_config) {
     push_scope(); // Global scope
 }
 
 bool SemanticAnalyzer::analyze() {
     // Pass 1: Build Packages, Modules, and register top-level declarations
     std::string current_mod = "";
+    std::vector<DeclHandle> foreign_blocks;
     
     // Helper to register declarations into a package scope
     auto register_decl = [&](DeclHandle handle, const std::string& pkg_name) {
@@ -70,6 +72,8 @@ bool SemanticAnalyzer::analyze() {
         } else if (auto* u = std::get_if<TypeAliasDecl>(&decl)) {
             Symbol sym{u->name, TypeHandle{0xffffffff}, handle, true, false, false};
             packages_[pkg_name].symbols.push_back(sym);
+        } else if (std::holds_alternative<ForeignBlockDecl>(decl)) {
+            foreign_blocks.push_back(handle);
         }
     };
 
@@ -88,6 +92,8 @@ bool SemanticAnalyzer::analyze() {
             scopes_[0].symbols.push_back({f->name, TypeHandle{0xffffffff}, handle, true, false, false});
         } else if (auto* u = std::get_if<TypeAliasDecl>(&decl)) {
             scopes_[0].symbols.push_back({u->name, TypeHandle{0xffffffff}, handle, true, false, false});
+        } else if (std::holds_alternative<ForeignBlockDecl>(decl)) {
+            foreign_blocks.push_back(handle);
         }
     };
     
@@ -156,6 +162,11 @@ bool SemanticAnalyzer::analyze() {
         } else {
             register_global_decl(handle);
         }
+    }
+
+    if (!foreign_blocks.empty() && !ffi_config_.c_compiler_path.empty()) {
+        FFIParser ffi_parser(ffi_config_, program_);
+        ffi_functions_ = ffi_parser.parse_c_headers(foreign_blocks);
     }
 
     // Main pass: visit all top-level declarations
@@ -1102,22 +1113,52 @@ void SemanticAnalyzer::visit(const CallExpr& expr) {
                 }
             }
         } else if (auto* ffi_expr = std::get_if<FFIAccessExpr>(&func_expr)) {
-            // Evaluate FFI call
-            for (const auto& arg : expr.arguments) {
-                visit_expr(program_.expressions[arg.index], this);
+            std::string c_func_name(ffi_expr->function_name.ptr(), ffi_expr->function_name.len());
+            
+            // Check if we parsed C headers
+            auto it = ffi_functions_.find(c_func_name);
+            if (it != ffi_functions_.end()) {
+                const FunctionType& sig = it->second;
+                
+                // Compare argument count
+                if (expr.arguments.size() != sig.param_types.size() && !expr.arguments.empty()) {
+                    // It could be variadic, but we don't have perfect variadic representation from TS yet.
+                    // Let's just do a basic check if less than required
+                    if (expr.arguments.size() < sig.param_types.size()) {
+                        report_error("C function '" + c_func_name + "' expects " + std::to_string(sig.param_types.size()) + " arguments, got " + std::to_string(expr.arguments.size()));
+                    }
+                }
+                
+                for (size_t i = 0; i < expr.arguments.size(); ++i) {
+                    visit_expr(program_.expressions[expr.arguments[i].index], this);
+                    if (i < sig.param_types.size()) {
+                        if (!are_types_compatible(program_, current_expr_type_, sig.param_types[i])) {
+                            report_error("Type mismatch in C function '" + c_func_name + "' argument " + std::to_string(i + 1));
+                        }
+                    }
+                }
+                
+                for (const auto& narg : expr.named_args) {
+                    visit_expr(program_.expressions[narg.value.index], this);
+                    report_error("Named arguments not supported in C FFI calls");
+                }
+                
+                current_expr_type_ = sig.return_type;
+            } else {
+                // Fallback to void/i32 if we couldn't parse the headers or find the function
+                for (const auto& arg : expr.arguments) {
+                    visit_expr(program_.expressions[arg.index], this);
+                }
+                for (const auto& narg : expr.named_args) {
+                    visit_expr(program_.expressions[narg.value.index], this);
+                }
+                if (!ffi_config_.c_compiler_path.empty()) {
+                    report_warning("C function '" + c_func_name + "' signature not found. Assuming i32 return.");
+                }
+                PrimitiveType i32_type{TokenType::I32};
+                program_.types.push_back(i32_type);
+                current_expr_type_ = TypeHandle{static_cast<uint32_t>(program_.types.size() - 1)};
             }
-            for (const auto& narg : expr.named_args) {
-                visit_expr(program_.expressions[narg.value.index], this);
-            }
-            // Return void or a generic type for FFI. For now, we don't know the exact C return type.
-            // C calls can return int, void*, etc. Let's return void (null handle) to avoid type checking issues,
-            // or return a special FFI result type if needed.
-            // To be safe, we'll return a generic unknown type, or just i32 (since many C functions return int).
-            // The safest is void (null handle). If they use the result, they should cast it.
-            // Actually, we'll return i32 as a sensible default for C functions like malloc/printf if they assign it.
-            PrimitiveType i32_type{TokenType::I32};
-            program_.types.push_back(i32_type);
-            current_expr_type_ = TypeHandle{static_cast<uint32_t>(program_.types.size() - 1)};
             return;
         }
     }

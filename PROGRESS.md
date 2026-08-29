@@ -11,6 +11,7 @@
 - [x] **Module Architecture**: Fully functional namespace isolation (`package`), export encapsulation (`module`), and resolution (`import mod.pkg as p`).
 - [x] **Parameterized Modules**: Support for passing configuration arguments to modules at compile-time, with `#param_name` access inside packages.
 - [x] **Semantic Analysis Scaffold**: Two-pass scope resolution (`Pre-Pass 1.0` and `Module Resolution 1.5`), immutability enforcement, undefined symbol checking.
+- [x] **C Foreign Function Interface (FFI)**: Complete FFI integration with automatic C type mapping, header preprocessing, and compile-time validation. Language blocks (`[[language="c"]]`), FFI calls (`c::function()`), and zero-cost string interoperability via `c_str()` method.
 
 ## Current Development Roadmap
 - [ ] **Semantic Type System Hardening**:
@@ -31,9 +32,9 @@
 - [x] **Compile-Time Execution**: Capability to run arbitrary user code securely during the compilation phase. (Partially via `ConstExprEvaluator`)
 - [ ] **Reflection & Metaprogramming**: Robust reflection system paired with programmatic code generation.
 - [x] **Literal Suffixes**: Built-in suffixes for numeric/text literals alongside support for user-defined suffixes. (Numeric suffixes implemented)
-- [ ] **`[[allocator]]` Attribute**: Explicit marking of functions that may allocate or free memory for strict safety auditing.
+- [x] **`[[allocator]]` Attribute**: Explicit marking of functions that may allocate or free memory for strict safety auditing. (Basic FFI support via C headers)
 - [x] **Enhanced Iteration**: `for-each` loop support featuring built-in indexing and stride controls. (Iterating over collections/ranges implemented)
-- [x] **C-Style Variadic Arguments**: For seamless C interoperability and variable-length argument passing.
+- [x] **C-Style Variadic Arguments**: For seamless C interoperability and variable-length argument passing. (Supported via FFI and C header parsing)
 - [ ] **Versioning System**: First-class support for module versioning and language versioning boundaries.
 - [ ] **Inline Assembly**: Direct hardware and register control.
 - [x] **Destructive Move**: Secure, default destructive-move semantics.

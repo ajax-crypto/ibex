@@ -37,9 +37,15 @@ struct Scope {
     std::vector<Symbol> symbols;
 };
 
+struct FFIConfig {
+    std::string c_compiler_path;
+    std::vector<std::string> include_paths;
+    std::vector<std::string> definitions;
+};
+
 class SemanticAnalyzer : public TypeVisitor, public ExprVisitor, public StmtVisitor, public DeclVisitor {
 public:
-    SemanticAnalyzer(Program& program, TypeRegistry& type_registry);
+    explicit SemanticAnalyzer(Program& program, TypeRegistry& type_registry, const FFIConfig& ffi_config = FFIConfig());
 
     bool analyze();
 
@@ -189,6 +195,9 @@ private:
     std::vector<ImportDecl> current_imports_;
 
     TypeHandle current_expr_type_; // For returning type from Expr visitor
+    
+    FFIConfig ffi_config_;
+    std::unordered_map<std::string, FunctionType> ffi_functions_;
 };
 
 } // namespace ibex

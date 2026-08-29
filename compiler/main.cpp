@@ -12,16 +12,42 @@
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
-        std::cerr << "Usage: ibexc <input_file> [options]\n";
-        std::cerr << "  -o <output>  Output file path\n";
+        std::cerr << "Usage: ibexc [options] <input_file>...\n";
+        std::cerr << "Options:\n";
+        std::cerr << "  -o <output>         Output file path\n";
+        std::cerr << "  --c-compiler <path> Path to C compiler for FFI\n";
+        std::cerr << "  -D<macro>           Define macro for FFI\n";
+        std::cerr << "  -I<path>            Include path for FFI\n";
         return 1;
     }
 
     std::vector<std::unique_ptr<std::string>> file_contents;
     std::vector<ibex::Token> tokens;
+    
+    ibex::FFIConfig ffi_config;
+    std::vector<std::string> input_files;
 
     for (int i = 1; i < argc; ++i) {
-        std::string input_file = argv[i];
+        std::string arg = argv[i];
+        if (arg == "--c-compiler" && i + 1 < argc) {
+            ffi_config.c_compiler_path = argv[++i];
+        } else if (arg.starts_with("-I")) {
+            ffi_config.include_paths.push_back(arg.substr(2));
+        } else if (arg.starts_with("-D")) {
+            ffi_config.definitions.push_back(arg.substr(2));
+        } else if (arg == "-o" && i + 1 < argc) {
+            ++i; // output file...
+        } else if (!arg.starts_with("-")) {
+            input_files.push_back(arg);
+        }
+    }
+
+    if (input_files.empty()) {
+        std::cerr << "Error: No input files provided.\n";
+        return 1;
+    }
+
+    for (const auto& input_file : input_files) {
         // Read input file
         std::ifstream file(input_file);
         if (!file.is_open()) {
@@ -81,7 +107,7 @@ int main(int argc, char* argv[]) {
     std::cout << "Type registry initialized\n";
 
     // Semantic analysis
-    ibex::SemanticAnalyzer semantic_analyzer(parser.program(), registry);
+    ibex::SemanticAnalyzer semantic_analyzer(parser.program(), registry, ffi_config);
     if (!semantic_analyzer.analyze()) {
         std::cerr << "Semantic errors:\n";
         for (const auto& error : semantic_analyzer.get_errors()) {
