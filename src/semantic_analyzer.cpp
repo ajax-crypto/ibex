@@ -18,7 +18,10 @@ static bool is_integer_type(const Program& program, TypeHandle th) {
     if (th.is_null()) return false;
     auto& type = program.types[th.index];
     if (auto* prim = std::get_if<PrimitiveType>(&type)) {
-        return prim->primitive >= TokenType::I8 && prim->primitive <= TokenType::BYTE; // BYTE is alias for U8
+        auto p = prim->primitive;
+        return p == TokenType::I8 || p == TokenType::I16 || p == TokenType::I32 || p == TokenType::I64 ||
+               p == TokenType::U8 || p == TokenType::U16 || p == TokenType::U32 || p == TokenType::U64 ||
+               p == TokenType::BYTE;
     }
     return false;
 }
@@ -53,19 +56,19 @@ bool SemanticAnalyzer::analyze() {
         if (handle.is_null()) return;
         auto& decl = program_.declarations[handle.index];
         if (auto* func = std::get_if<FunctionDecl>(&decl)) {
-            Symbol sym{func->name, TypeHandle{}, handle, true, false, false};
+            Symbol sym{func->name, TypeHandle{0xffffffff}, handle, true, false, false};
             packages_[pkg_name].symbols.push_back(sym);
         } else if (auto* s = std::get_if<StructDecl>(&decl)) {
-            Symbol sym{s->name, TypeHandle{}, handle, true, false, false};
+            Symbol sym{s->name, TypeHandle{0xffffffff}, handle, true, false, false};
             packages_[pkg_name].symbols.push_back(sym);
         } else if (auto* e = std::get_if<EnumDecl>(&decl)) {
-            Symbol sym{e->name, TypeHandle{}, handle, true, false, false};
+            Symbol sym{e->name, TypeHandle{0xffffffff}, handle, true, false, false};
             packages_[pkg_name].symbols.push_back(sym);
         } else if (auto* f = std::get_if<FlagDecl>(&decl)) {
-            Symbol sym{f->name, TypeHandle{}, handle, true, false, false};
+            Symbol sym{f->name, TypeHandle{0xffffffff}, handle, true, false, false};
             packages_[pkg_name].symbols.push_back(sym);
         } else if (auto* u = std::get_if<TypeAliasDecl>(&decl)) {
-            Symbol sym{u->name, TypeHandle{}, handle, true, false, false};
+            Symbol sym{u->name, TypeHandle{0xffffffff}, handle, true, false, false};
             packages_[pkg_name].symbols.push_back(sym);
         }
     };
@@ -74,17 +77,17 @@ bool SemanticAnalyzer::analyze() {
         if (handle.is_null()) return;
         auto& decl = program_.declarations[handle.index];
         if (auto* func = std::get_if<FunctionDecl>(&decl)) {
-            scopes_[0].symbols.push_back({func->name, TypeHandle{}, handle, true, false, false});
+            scopes_[0].symbols.push_back({func->name, TypeHandle{0xffffffff}, handle, true, false, false});
         } else if (auto* s = std::get_if<StructDecl>(&decl)) {
-            scopes_[0].symbols.push_back({s->name, TypeHandle{}, handle, true, false, false});
+            scopes_[0].symbols.push_back({s->name, TypeHandle{0xffffffff}, handle, true, false, false});
         } else if (auto* e = std::get_if<EnumDecl>(&decl)) {
-            std::cout << "DEBUG: global Enum " << std::string(e->name.ptr(), e->name.len()) << "\n";
-            scopes_[0].symbols.push_back({e->name, TypeHandle{}, handle, true, false, false});
+            
+            scopes_[0].symbols.push_back({e->name, TypeHandle{0xffffffff}, handle, true, false, false});
         } else if (auto* f = std::get_if<FlagDecl>(&decl)) {
-            std::cout << "DEBUG: global Flag " << std::string(f->name.ptr(), f->name.len()) << "\n";
-            scopes_[0].symbols.push_back({f->name, TypeHandle{}, handle, true, false, false});
+            
+            scopes_[0].symbols.push_back({f->name, TypeHandle{0xffffffff}, handle, true, false, false});
         } else if (auto* u = std::get_if<TypeAliasDecl>(&decl)) {
-            scopes_[0].symbols.push_back({u->name, TypeHandle{}, handle, true, false, false});
+            scopes_[0].symbols.push_back({u->name, TypeHandle{0xffffffff}, handle, true, false, false});
         }
     };
     
@@ -110,7 +113,7 @@ bool SemanticAnalyzer::analyze() {
                 }
             }
             if (!namespace_registered) {
-                scopes_[0].symbols.push_back({pkg->name, TypeHandle{}, DeclHandle{}, true, false, false, true, pkg_name});
+                scopes_[0].symbols.push_back({pkg->name, TypeHandle{0xffffffff}, DeclHandle{}, true, false, false, true, pkg_name});
             }
             
             for (auto inner_handle : pkg->declarations) {
@@ -211,6 +214,29 @@ void SemanticAnalyzer::add_symbol(Str name, TypeHandle type, DeclHandle decl_han
     });
 }
 
+Symbol* SemanticAnalyzer::find_symbol_mut(Str name) {
+    for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
+        for (auto& sym : it->symbols) {
+            if (sym.name == name) {
+                sym.is_used = true;
+                return &sym;
+            }
+        }
+    }
+    if (!current_package_.empty()) {
+        auto it = packages_.find(current_package_);
+        if (it != packages_.end()) {
+            for (auto& sym : it->second.symbols) {
+                if (sym.name == name) {
+                    sym.is_used = true;
+                    return &sym;
+                }
+            }
+        }
+    }
+    return nullptr;
+}
+
 std::optional<Symbol> SemanticAnalyzer::find_symbol(Str name) {
     std::cout << "find_symbol: " << std::string(name.ptr(), name.len()) << "\n";
     // 1. Check local scopes (and global built-ins in scopes_[0])
@@ -230,7 +256,7 @@ std::optional<Symbol> SemanticAnalyzer::find_symbol(Str name) {
             for (auto& sym : it->second.symbols) {
                 if (sym.name == name) {
                     sym.is_used = true;
-                    std::cout << "DEBUG: find_symbol found " << std::string(name.ptr(), name.len()) << " in current_package " << current_package_ << " type index=" << sym.type.index << "\n";
+                    
                     return sym;
                 }
             }
@@ -259,21 +285,21 @@ std::optional<Symbol> SemanticAnalyzer::find_symbol(Str name) {
         std::string mod_name(imp.module_name.ptr(), imp.module_name.len());
         if (sname == mod_name) {
             // It's a module reference
-            return Symbol{name, TypeHandle{}, DeclHandle{}, true, false, true, true, mod_name + ".*"};
+            return Symbol{name, TypeHandle{0xffffffff}, DeclHandle{}, true, false, true, true, mod_name + ".*"};
         }
         if (imp.package_name) {
             std::string pkg_name(imp.package_name->ptr(), imp.package_name->len());
             if (imp.alias && sname == std::string(imp.alias->ptr(), imp.alias->len())) {
-                return Symbol{name, TypeHandle{}, DeclHandle{}, true, false, true, true, pkg_name};
+                return Symbol{name, TypeHandle{0xffffffff}, DeclHandle{}, true, false, true, true, pkg_name};
             } else if (!imp.alias && sname == pkg_name) {
-                return Symbol{name, TypeHandle{}, DeclHandle{}, true, false, true, true, pkg_name};
+                return Symbol{name, TypeHandle{0xffffffff}, DeclHandle{}, true, false, true, true, pkg_name};
             }
         }
         // Wildcard import with alias: import mod.* as alias
         if (imp.is_wildcard && imp.alias) {
             std::string alias_name(imp.alias->ptr(), imp.alias->len());
             if (sname == alias_name) {
-                return Symbol{name, TypeHandle{0}, DeclHandle{}, true, false, true, true, mod_name + ".*"};
+                return Symbol{name, TypeHandle{0xffffffff}, DeclHandle{}, true, false, true, true, mod_name + ".*"};
             }
         }
     }
@@ -292,7 +318,167 @@ TypeHandle SemanticAnalyzer::resolve_type(const Type& type_variant) {
             return current_expr_type_;
         }
     }
-    return TypeHandle{0};
+    return TypeHandle{0xffffffff};
+}
+TypeHandle SemanticAnalyzer::resolve_aliases(TypeHandle t) {
+    if (t.is_null()) return t;
+    auto& type_variant = program_.types[t.index];
+    if (auto* named = std::get_if<NamedType>(&type_variant)) {
+        if (auto sym = find_symbol(named->name)) {
+            if (!sym->decl_handle.is_null()) {
+                auto& decl = program_.declarations[sym->decl_handle.index];
+                if (auto* alias_decl = std::get_if<TypeAliasDecl>(&decl)) {
+                    // Recursively resolve
+                    return resolve_aliases(alias_decl->target_type);
+                }
+            }
+        }
+    } else if (auto* typeof_t = std::get_if<TypeofType>(&type_variant)) {
+        return resolve_aliases(resolve_type(type_variant));
+    }
+    return t;
+}
+
+bool SemanticAnalyzer::is_structurally_identical(TypeHandle a, TypeHandle b) {
+    if (a.index == b.index) return true;
+    
+    TypeHandle res_a = resolve_aliases(a);
+    TypeHandle res_b = resolve_aliases(b);
+    if (res_a.index == res_b.index) return true;
+    if (res_a.is_null() || res_b.is_null()) return false;
+    
+    auto& t1 = program_.types[res_a.index];
+    auto& t2 = program_.types[res_b.index];
+    
+    if (t1.index() != t2.index()) return false;
+    
+    if (auto* p1 = std::get_if<PrimitiveType>(&t1)) {
+        if (auto* p2 = std::get_if<PrimitiveType>(&t2)) {
+            return p1->primitive == p2->primitive;
+        }
+        return false;
+    }
+    if (auto* pt1 = std::get_if<PointerType>(&t1)) {
+        if (auto* pt2 = std::get_if<PointerType>(&t2)) {
+            return is_structurally_identical(pt1->base, pt2->base);
+        }
+        return false;
+    }
+    if (auto* rt1 = std::get_if<ReferenceType>(&t1)) {
+        if (auto* rt2 = std::get_if<ReferenceType>(&t2)) {
+            return is_structurally_identical(rt1->base, rt2->base);
+        }
+        return false;
+    }
+    if (auto* arr1 = std::get_if<ArrayType>(&t1)) {
+        if (auto* arr2 = std::get_if<ArrayType>(&t2)) {
+            if (!is_structurally_identical(arr1->element, arr2->element)) return false;
+            return true;
+        }
+        return false;
+    }
+    if (auto* tup1 = std::get_if<TupleType>(&t1)) {
+        if (auto* tup2 = std::get_if<TupleType>(&t2)) {
+            if (tup1->element_types.size() != tup2->element_types.size()) return false;
+            for (size_t i = 0; i < tup1->element_types.size(); i++) {
+                if (!is_structurally_identical(tup1->element_types[i], tup2->element_types[i])) return false;
+            }
+            return true;
+        }
+        return false;
+    }
+    if (auto* opt1 = std::get_if<OptionalType>(&t1)) {
+        if (auto* opt2 = std::get_if<OptionalType>(&t2)) {
+            return is_structurally_identical(opt1->element_type, opt2->element_type);
+        }
+        return false;
+    }
+    if (auto* n1 = std::get_if<NamedType>(&t1)) {
+        auto* n2 = std::get_if<NamedType>(&t2);
+        auto s1 = find_symbol(n1->name);
+        auto s2 = find_symbol(n2->name);
+        if (!s1 || !s2 || s1->decl_handle.is_null() || s2->decl_handle.is_null()) return false;
+        
+        auto& d1 = program_.declarations[s1->decl_handle.index];
+        auto& d2 = program_.declarations[s2->decl_handle.index];
+        
+        if (auto* struct1 = std::get_if<StructDecl>(&d1)) {
+            if (auto* struct2 = std::get_if<StructDecl>(&d2)) {
+                if (struct1->members.size() != struct2->members.size()) return false;
+                for (size_t i = 0; i < struct1->members.size(); i++) {
+                    if (!is_structurally_identical(struct1->members[i].type, struct2->members[i].type)) return false;
+                }
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool SemanticAnalyzer::is_cast_allowed(TypeHandle source, TypeHandle target) {
+    if (source.is_null() || target.is_null()) return false;
+    if (is_structurally_identical(source, target)) return true;
+    
+    TypeHandle res_source = resolve_aliases(source);
+    TypeHandle res_target = resolve_aliases(target);
+    if (res_source.is_null() || res_target.is_null()) return false;
+    
+    // Variant extraction (e.g., variant as i32)
+    if (auto* var_src = std::get_if<VariantType>(&program_.types[res_source.index])) {
+        for (TypeHandle th : var_src->types) {
+            if (is_cast_allowed(th, target)) return true;
+        }
+    }
+    // Variant creation (e.g., i32 as variant)
+    if (auto* var_tgt = std::get_if<VariantType>(&program_.types[res_target.index])) {
+        for (TypeHandle th : var_tgt->types) {
+            if (is_cast_allowed(source, th)) return true;
+        }
+    }
+    
+    auto is_numeric = [&](TypeHandle t) {
+        if (auto* prim = std::get_if<PrimitiveType>(&program_.types[t.index])) {
+            auto p = prim->primitive;
+            return p == TokenType::I8 || p == TokenType::I16 || p == TokenType::I32 || p == TokenType::I64 ||
+                   p == TokenType::U8 || p == TokenType::U16 || p == TokenType::U32 || p == TokenType::U64 ||
+                   p == TokenType::BYTE || p == TokenType::F32 || p == TokenType::F64;
+        }
+        return false;
+    };
+    
+    auto is_integer = [&](TypeHandle t) {
+        if (auto* prim = std::get_if<PrimitiveType>(&program_.types[t.index])) {
+            auto p = prim->primitive;
+            return p == TokenType::I8 || p == TokenType::I16 || p == TokenType::I32 || p == TokenType::I64 ||
+                   p == TokenType::U8 || p == TokenType::U16 || p == TokenType::U32 || p == TokenType::U64 ||
+                   p == TokenType::BYTE;
+        }
+        return false;
+    };
+    
+    auto is_enum_or_flag = [&](TypeHandle t) {
+        if (auto* named = std::get_if<NamedType>(&program_.types[t.index])) {
+            if (auto sym = find_symbol(named->name)) {
+                if (!sym->decl_handle.is_null()) {
+                    auto& decl = program_.declarations[sym->decl_handle.index];
+                    return std::holds_alternative<EnumDecl>(decl) || std::holds_alternative<FlagDecl>(decl);
+                }
+            }
+        }
+        return false;
+    };
+    
+    // 1. Numeric <-> Numeric
+    if (is_numeric(res_source) && is_numeric(res_target)) return true;
+    
+    // 2. Integer <-> Enum/Flag
+    if ((is_integer(res_source) && is_enum_or_flag(res_target)) ||
+        (is_enum_or_flag(res_source) && is_integer(res_target))) return true;
+        
+    // 3. Enum/Flag <-> Enum/Flag
+    if (is_enum_or_flag(res_source) && is_enum_or_flag(res_target)) return true;
+    
+    return false;
 }
 
 void SemanticAnalyzer::validate_attributes(std::span<Attribute> attrs) {
@@ -407,7 +593,7 @@ void SemanticAnalyzer::check_discard(ExprHandle expr_handle) {
                 }
             }
         }
-        std::cout << "DEBUG: MemberExpr evaluated to " << current_expr_type_.index << "\n";
+        
     }
 }
 
@@ -521,6 +707,18 @@ void SemanticAnalyzer::visit(const BinaryExpr& expr) {
         check_mutation(expr.left);
         if (expr.op == TokenType::EQUAL) {
             check_escape(expr.left, expr.right);
+            check_implicit_copy(expr.right);
+            
+            // Revive moved variable on re-assignment
+            if (!expr.left.is_null()) {
+                auto& left_node = program_.expressions[expr.left.index];
+                if (auto* id = std::get_if<IdentifierExpr>(&left_node)) {
+                    Symbol* sym = find_symbol_mut(id->name);
+                    if (sym) {
+                        sym->is_moved = false;
+                    }
+                }
+            }
         }
     }
 
@@ -561,14 +759,25 @@ void SemanticAnalyzer::visit(const BinaryExpr& expr) {
         bool right_int = is_integer_type(program_, right_type);
         bool left_flag = is_flag_type(left_type);
         bool right_flag = is_flag_type(right_type);
+        
+        auto is_bool_type = [&](TypeHandle th) {
+            if (th.is_null()) return false;
+            if (auto* p = std::get_if<PrimitiveType>(&program_.types[th.index])) {
+                return p->primitive == TokenType::BOOL;
+            }
+            return false;
+        };
+        
+        bool left_bool = is_bool_type(left_type);
+        bool right_bool = is_bool_type(right_type);
 
         if (expr.op == TokenType::LSHIFT || expr.op == TokenType::RSHIFT) {
             if (!left_int || !right_int) {
                 report_error("Shift operators are only allowed on integer types");
             }
         } else {
-            if (!((left_int && right_int) || (left_flag && right_flag))) {
-                std::cout << "DEBUG: Bitwise! left_type=" << left_type.index << " right_type=" << right_type.index << " left_flag=" << left_flag << " right_flag=" << right_flag << "\n"; report_error("Bitwise operators are only allowed on integer types or matching flag types");
+            if (!((left_int && right_int) || (left_flag && right_flag) || (left_bool && right_bool))) {
+                report_error("Bitwise operators are only allowed on integer types, boolean types, or matching flag types");
             }
         }
         current_expr_type_ = left_type;
@@ -597,7 +806,10 @@ void SemanticAnalyzer::visit(const BinaryExpr& expr) {
         }
 
         if (is_comparison) {
-            current_expr_type_ = TypeHandle{0};
+            PrimitiveType pt;
+            pt.primitive = TokenType::BOOL;
+            program_.types.push_back(pt);
+            current_expr_type_ = TypeHandle{static_cast<uint32_t>(program_.types.size() - 1)};
         } else {
             current_expr_type_ = left_type;
         }
@@ -704,21 +916,21 @@ void SemanticAnalyzer::visit(const LiteralExpr& expr) {
         program_.types.push_back(pt);
         current_expr_type_ = TypeHandle{static_cast<uint32_t>(program_.types.size() - 1)};
     } else if (expr.kind == LiteralExpr::Kind::NULL_VALUE) {
-        current_expr_type_ = TypeHandle{};
+        current_expr_type_ = TypeHandle{0xffffffff};
     }
 }
 
 void SemanticAnalyzer::visit(const ModuleParamExpr& expr) {
     if (current_module_name_.empty()) {
         report_error("Module parameter reference '#" + std::string(expr.name.ptr(), expr.name.len()) + "' outside of a module");
-        current_expr_type_ = TypeHandle{};
+        current_expr_type_ = TypeHandle{0xffffffff};
         return;
     }
 
     auto it = module_params_.find(current_module_name_);
     if (it == module_params_.end() || it->second.empty()) {
         report_error("Module '" + current_module_name_ + "' has no parameters");
-        current_expr_type_ = TypeHandle{};
+        current_expr_type_ = TypeHandle{0xffffffff};
         return;
     }
 
@@ -736,7 +948,7 @@ void SemanticAnalyzer::visit(const ModuleParamExpr& expr) {
 
     if (!found) {
         report_error("Invalid module parameter '#" + param_name + "' for module '" + current_module_name_ + "'");
-        current_expr_type_ = TypeHandle{};
+        current_expr_type_ = TypeHandle{0xffffffff};
         return;
     }
 
@@ -745,10 +957,13 @@ void SemanticAnalyzer::visit(const ModuleParamExpr& expr) {
 
 void SemanticAnalyzer::visit(const IdentifierExpr& expr) {
     if (auto sym = find_symbol(expr.name)) {
+        if (sym->is_moved) {
+            report_error("Use of moved variable '" + std::string(expr.name.ptr(), expr.name.len()) + "'");
+        }
         check_deprecated(*sym);
-        std::cout << "DEBUG: IdentifierExpr raw type index=" << sym->type.index << " is_null=" << sym->type.is_null() << " for " << std::string(expr.name.ptr(), expr.name.len()) << "\n";
+        
         if (sym->type.is_null() && !sym->decl_handle.is_null()) {
-            std::cout << "DEBUG: IdentifierExpr making NamedType for " << std::string(expr.name.ptr(), expr.name.len()) << "\n";
+            
             auto& decl = program_.declarations[sym->decl_handle.index];
             if (std::holds_alternative<StructDecl>(decl) ||
                 std::holds_alternative<EnumDecl>(decl) ||
@@ -762,7 +977,7 @@ void SemanticAnalyzer::visit(const IdentifierExpr& expr) {
         }
         current_expr_type_ = sym->type;
     } else {
-        current_expr_type_ = TypeHandle{0};
+        current_expr_type_ = TypeHandle{0xffffffff};
         report_error("Undefined symbol: '" + std::string(expr.name.ptr(), expr.name.len()) + "'");
     }
 }
@@ -809,7 +1024,7 @@ void SemanticAnalyzer::visit(const CallExpr& expr) {
                 }
             }
         }
-        std::cout << "DEBUG: MemberExpr evaluated to " << current_expr_type_.index << "\n";
+        
     }
     
     // Check if this is a method call on a flag type (set, reset, has)
@@ -837,7 +1052,7 @@ void SemanticAnalyzer::visit(const CallExpr& expr) {
                                     program_.types.push_back(p);
                                     current_expr_type_ = TypeHandle{static_cast<uint32_t>(program_.types.size() - 1)};
                                 } else {
-                                    current_expr_type_ = TypeHandle{0}; // void
+                                    current_expr_type_ = TypeHandle{0xffffffff}; // void
                                 }
                                 return; // Handled, return early
                             }
@@ -846,7 +1061,7 @@ void SemanticAnalyzer::visit(const CallExpr& expr) {
                 }
             }
         }
-        std::cout << "DEBUG: MemberExpr evaluated to " << current_expr_type_.index << "\n";
+        
     }
 
     if (func_decl) {
@@ -916,16 +1131,38 @@ void SemanticAnalyzer::visit(const CallExpr& expr) {
 
     if (!expr.function.is_null()) visit_expr(program_.expressions[expr.function.index], this);
     for (auto arg : expr.arguments) {
-        if (!arg.is_null()) visit_expr(program_.expressions[arg.index], this);
+        if (!arg.is_null()) {
+            visit_expr(program_.expressions[arg.index], this);
+            check_implicit_copy(arg);
+        }
     }
     for (auto arg : expr.named_args) {
-        if (!arg.value.is_null()) visit_expr(program_.expressions[arg.value.index], this);
+        if (!arg.value.is_null()) {
+            visit_expr(program_.expressions[arg.value.index], this);
+            check_implicit_copy(arg.value);
+        }
     }
 }
 
 void SemanticAnalyzer::visit(const CastExpr& expr) {
     if (!expr.target_type.is_null()) visit_type(program_.types[expr.target_type.index], this);
+    TypeHandle target = expr.target_type;
+    
     if (!expr.operand.is_null()) visit_expr(program_.expressions[expr.operand.index], this);
+    TypeHandle source = current_expr_type_;
+    
+    if (!is_cast_allowed(source, target)) {
+        if (!source.is_null() && program_.types[source.index].index() == 4) {
+            auto* slice = std::get_if<SliceType>(&program_.types[source.index]);
+            
+            if (!slice->element.is_null()) {
+                
+            }
+        }
+        
+        report_error("Illegal cast from evaluated type to target type (structurally incompatible)");
+    }
+    
     current_expr_type_ = expr.target_type;
 }
 
@@ -947,16 +1184,68 @@ void SemanticAnalyzer::visit(const TypeofExpr& expr) {
     current_expr_type_ = TypeHandle{static_cast<uint32_t>(program_.types.size() - 1)};
 }
 
+void SemanticAnalyzer::visit(const MoveExpr& expr) {
+    if (expr.operand.is_null()) return;
+    
+    // Visit to establish type
+    visit_expr(program_.expressions[expr.operand.index], this);
+    
+    // Set type to the operand's type
+    current_expr_type_ = current_expr_type_; 
+    
+    // Validate that it's a movable LValue
+    auto& op_expr = program_.expressions[expr.operand.index];
+    if (auto* id = std::get_if<IdentifierExpr>(&op_expr)) {
+        Symbol* sym = find_symbol_mut(id->name);
+        if (sym) {
+            if (sym->is_const) {
+                report_error("Cannot move from a const variable");
+            }
+            if (sym->decl_handle.index < program_.declarations.size()) {
+                auto& decl = program_.declarations[sym->decl_handle.index];
+                if (auto* var = std::get_if<VariableDecl>(&decl)) {
+                    if (has_attribute(var->attributes, "nomove")) {
+                        report_error("Cannot move from variable marked [[nomove]]");
+                    }
+                }
+            }
+            // Check type for nomove attribute
+            if (!sym->type.is_null()) {
+                auto& type_obj = program_.types[sym->type.index];
+                if (auto* named = std::get_if<NamedType>(&type_obj)) {
+                    auto type_sym = find_symbol(named->name);
+                    if (type_sym && !type_sym->decl_handle.is_null()) {
+                        auto& t_decl = program_.declarations[type_sym->decl_handle.index];
+                        if (auto* struct_decl = std::get_if<StructDecl>(&t_decl)) {
+                            if (has_attribute(struct_decl->attributes, "nomove")) {
+                                report_error("Cannot move from type marked [[nomove]]");
+                            }
+                        } else if (auto* enum_decl = std::get_if<EnumDecl>(&t_decl)) {
+                            if (has_attribute(enum_decl->attributes, "nomove")) {
+                                report_error("Cannot move from type marked [[nomove]]");
+                            }
+                        }
+                    }
+                }
+            }
+            // Mark as moved!
+            sym->is_moved = true;
+        }
+    } else {
+        report_error("move() can only be applied to identifiers (lvalues)");
+    }
+}
+
 void SemanticAnalyzer::visit(const MemberExpr& expr) {
     if (!expr.object.is_null()) {
         auto& obj_expr = program_.expressions[expr.object.index];
         std::string mem_str(expr.member.ptr(), expr.member.len());
-        std::cout << "DEBUG: Entering MemberExpr for ." << mem_str << "\n";
+        
         
         // Custom logic to handle module/package namespaces
         if (auto* id_expr = std::get_if<IdentifierExpr>(&obj_expr)) {
             auto sym = find_symbol(id_expr->name);
-            std::cout << "DEBUG: MemberExpr id_expr " << std::string(id_expr->name.ptr(), id_expr->name.len()) << " sym_found=" << (sym.has_value()) << " decl_null=" << (sym ? sym->decl_handle.is_null() : true) << "\n";
+            
             if (sym && sym->is_namespace) {
                 std::string target = sym->namespace_target;
                 if (target.ends_with(".*")) {
@@ -1073,7 +1362,7 @@ void SemanticAnalyzer::visit(const MemberExpr& expr) {
             }
             
             auto& type = *t_ptr;
-            std::cout << "DEBUG: MemberExpr object type variant=" << type.index() << "\n";
+            
             if (std::get_if<OptionalType>(&type)) {
                 report_error("Cannot access member of optional type directly, use '?' to unwrap");
             } else if (std::get_if<TupleType>(&type)) {
@@ -1095,22 +1384,22 @@ void SemanticAnalyzer::visit(const MemberExpr& expr) {
                         if (member_str == "underlying") {
                             current_expr_type_ = flag_decl->base_type;
                         } else if (member_str == "set" || member_str == "reset" || member_str == "has") {
-                            current_expr_type_ = TypeHandle{0};
+                            current_expr_type_ = TypeHandle{0xffffffff};
                         } else {
                             bool found = false;
-                            std::cout << "DEBUG: Checking members for " << member_str << ", total=" << flag_decl->members.size() << "\n";
+                            
                             for (const auto& mem : flag_decl->members) {
                                 std::string m_name(mem.name.ptr(), mem.name.len());
-                                std::cout << "DEBUG: Mem: " << m_name << "\n";
+                                
                                 if (mem.name == expr.member) {
                                     found = true;
                                     break;
                                 }
                             }
                             if (found) {
-                                std::cout << "DEBUG: Found F4! effective_type=" << effective_type.index << " current_expr_type_ BEFORE=" << current_expr_type_.index << "\n";
+                                
                                 current_expr_type_ = effective_type;
-                                std::cout << "DEBUG: current_expr_type_ AFTER=" << current_expr_type_.index << "\n";
+                                
                             } else {
                                 report_error("Flag '" + std::string(named->name.ptr(), named->name.len()) + "' has no member '" + member_str + "'");
                             }
@@ -1128,9 +1417,9 @@ void SemanticAnalyzer::visit(const MemberExpr& expr) {
                                 }
                             }
                             if (found) {
-                                std::cout << "DEBUG: Found F4! effective_type=" << effective_type.index << " current_expr_type_ BEFORE=" << current_expr_type_.index << "\n";
+                                
                                 current_expr_type_ = effective_type;
-                                std::cout << "DEBUG: current_expr_type_ AFTER=" << current_expr_type_.index << "\n";
+                                
                             } else {
                                 report_error("Enum '" + std::string(named->name.ptr(), named->name.len()) + "' has no member '" + member_str + "'");
                             }
@@ -1139,7 +1428,7 @@ void SemanticAnalyzer::visit(const MemberExpr& expr) {
                 }
             }
         }
-        std::cout << "DEBUG: MemberExpr evaluated to " << current_expr_type_.index << "\n";
+        
     }
 }
 
@@ -1217,7 +1506,7 @@ void SemanticAnalyzer::visit(const TypeMemberExpr& expr) {
 }
 
 void SemanticAnalyzer::visit(const IndexExpr& expr) {
-    current_expr_type_ = TypeHandle{0};
+    current_expr_type_ = TypeHandle{0xffffffff};
     if (!expr.object.is_null()) visit_expr(program_.expressions[expr.object.index], this);
     TypeHandle obj_type = current_expr_type_;
     
@@ -1260,7 +1549,7 @@ void SemanticAnalyzer::visit(const IndexExpr& expr) {
 }
 
 void SemanticAnalyzer::visit(const SliceExpr& expr) {
-    current_expr_type_ = TypeHandle{0};
+    current_expr_type_ = TypeHandle{0xffffffff};
     if (!expr.object.is_null()) visit_expr(program_.expressions[expr.object.index], this);
     TypeHandle obj_type = current_expr_type_;
     
@@ -1329,7 +1618,7 @@ void SemanticAnalyzer::visit(const RefExpr& expr) {
 }
 
 void SemanticAnalyzer::visit(const ArrayLiteralExpr& expr) {
-    TypeHandle elem_type = TypeHandle{0};
+    TypeHandle elem_type = TypeHandle{0xffffffff};
     for (auto el : expr.elements) {
         if (!el.is_null()) {
             visit_expr(program_.expressions[el.index], this);
@@ -1429,6 +1718,11 @@ void SemanticAnalyzer::visit(const BlockExpr& expr) {
 void SemanticAnalyzer::visit(const SizeofExpr& expr) {
     if (expr.type_operand) visit_type(program_.types[expr.type_operand->index], this);
     if (expr.expr_operand) visit_expr(program_.expressions[expr.expr_operand->index], this);
+    
+    PrimitiveType pt;
+    pt.primitive = TokenType::U64;
+    program_.types.push_back(pt);
+    current_expr_type_ = TypeHandle{static_cast<uint32_t>(program_.types.size() - 1)};
 }
 
 void SemanticAnalyzer::visit(const BindingExpr& expr) {
@@ -1634,6 +1928,23 @@ void SemanticAnalyzer::visit(const ReturnStmt& stmt) {
     if (stmt.value && !stmt.value.value().is_null()) {
         visit_expr(program_.expressions[stmt.value.value().index], this);
         check_escape_return(stmt.value.value());
+        
+        // Return Value Optimization (RVO): returning a local variable acts as an implicit move.
+        auto& expr_node = program_.expressions[stmt.value.value().index];
+        bool is_local_id = false;
+        if (auto* id = std::get_if<IdentifierExpr>(&expr_node)) {
+            if (Symbol* sym = find_symbol_mut(id->name)) {
+                if (sym->scope_depth > 0 && !sym->is_const && !sym->is_static) {
+                    // It's a local variable, allow implicit move on returns.
+                    sym->is_moved = true; // Mark as moved!
+                    is_local_id = true;
+                }
+            }
+        }
+        
+        if (!is_local_id) {
+            check_implicit_copy(stmt.value.value());
+        }
     }
 }
 
@@ -1662,7 +1973,7 @@ void SemanticAnalyzer::visit(const WhileStmt& stmt) {
             if (!is_mutated(program_, stmt.body, deps)) {
                 std::string dep_list;
                 for (auto d : deps) dep_list += std::string(d) + " ";
-                report_error("Infinite loop detected: condition variables are never modified: " + dep_list);
+                std::cout << "Warning: Infinite loop detected: condition variables are never modified: " << dep_list << "\n";
             }
         }
     }
@@ -1693,7 +2004,7 @@ void SemanticAnalyzer::visit(const ForStmt& stmt) {
                 if (!mutated_in_inc && !mutated_in_body) {
                     std::string dep_list;
                     for (auto d : deps) dep_list += std::string(d) + " ";
-                    report_error("Infinite loop detected: condition variables are never modified: " + dep_list);
+                    std::cout << "Warning: Infinite loop detected: condition variables are never modified: " << dep_list << "\n";
                 }
             }
         }
@@ -1701,7 +2012,7 @@ void SemanticAnalyzer::visit(const ForStmt& stmt) {
             visit_stmt(program_.statements[stmt.increment.value().index], this);
         }
     } else {
-        TypeHandle loop_var_type = TypeHandle{0};
+        TypeHandle loop_var_type = TypeHandle{0xffffffff};
         if (stmt.range && !stmt.range.value().is_null()) {
             visit_expr(program_.expressions[stmt.range.value().index], this);
             TypeHandle range_type = current_expr_type_;
@@ -1720,7 +2031,7 @@ void SemanticAnalyzer::visit(const ForStmt& stmt) {
         }
         add_symbol(stmt.variable, loop_var_type, DeclHandle{}, true);
         if (stmt.index_variable) {
-            add_symbol(stmt.index_variable.value(), TypeHandle{0}, DeclHandle{}, true);
+            add_symbol(stmt.index_variable.value(), TypeHandle{0xffffffff}, DeclHandle{}, true);
         }
     }
     
@@ -1747,7 +2058,7 @@ void SemanticAnalyzer::visit(const ExprStmt& stmt) {
 
 void SemanticAnalyzer::visit(const VarDeclStmt& stmt) {
     validate_attributes(stmt.attributes);
-    if (stmt.type && !stmt.type.value().is_null()) visit_type(program_.types[stmt.type.value().index], this);    TypeHandle resolved_type = stmt.type.value_or(TypeHandle{0});
+    if (stmt.type && !stmt.type.value().is_null()) visit_type(program_.types[stmt.type.value().index], this);    TypeHandle resolved_type = stmt.type.value_or(TypeHandle{0xffffffff});
     if (stmt.initializer && !stmt.initializer.value().is_null()) {
         visit_expr(program_.expressions[stmt.initializer.value().index], this);
         if (!stmt.type) {
@@ -1775,7 +2086,7 @@ void SemanticAnalyzer::visit(const VarDeclStmt& stmt) {
                 }
             }
         }
-        std::cout << "DEBUG: MemberExpr evaluated to " << current_expr_type_.index << "\n";
+        
     } else if (stmt.type && !stmt.type.value().is_null()) {
         if (std::holds_alternative<VariantType>(program_.types[stmt.type.value().index])) {
             report_error("Variant types must be initialized");
@@ -1987,7 +2298,7 @@ void SemanticAnalyzer::visit(const FunctionDecl& decl) {
 void SemanticAnalyzer::visit(const VariableDecl& decl) {
     validate_attributes(decl.attributes);
     std::cout << "Visiting VariableDecl: " << std::string(decl.name.ptr(), decl.name.len()) << "\n";
-    TypeHandle resolved_type = decl.type.value_or(TypeHandle{0});
+    TypeHandle resolved_type = decl.type.value_or(TypeHandle{0xffffffff});
     if (!resolved_type.is_null()) {
         auto& t_variant = program_.types[resolved_type.index];
         if (std::holds_alternative<TypeofType>(t_variant)) {
@@ -1997,6 +2308,7 @@ void SemanticAnalyzer::visit(const VariableDecl& decl) {
     }
     if (decl.initializer && !decl.initializer.value().is_null()) {
         visit_expr(program_.expressions[decl.initializer.value().index], this);
+        check_implicit_copy(decl.initializer.value());
         if (!resolved_type.is_null()) {
             if (auto* var_type = std::get_if<VariantType>(&program_.types[resolved_type.index])) {
                 if (auto* lit = std::get_if<LiteralExpr>(&program_.expressions[decl.initializer.value().index])) {
@@ -2019,7 +2331,7 @@ void SemanticAnalyzer::visit(const VariableDecl& decl) {
                 }
             }
         }
-        std::cout << "DEBUG: MemberExpr evaluated to " << current_expr_type_.index << "\n";
+        
     } else if (!resolved_type.is_null()) {
         if (std::holds_alternative<VariantType>(program_.types[resolved_type.index])) {
             report_error("Variant types must be initialized");
@@ -2101,7 +2413,7 @@ void SemanticAnalyzer::visit(const StructDecl& decl_const) {
 
     // Don't re-add if already added in pre-pass
     if (!find_symbol(decl.name)) {
-        add_symbol(decl.name, TypeHandle{0});
+        add_symbol(decl.name, TypeHandle{0xffffffff});
     }
 }
 
@@ -2258,13 +2570,13 @@ void SemanticAnalyzer::visit(const FunctionBindingDecl& decl) {
     for (auto& arg : decl.bound_args) {
         if (arg && !arg.value().is_null()) visit_expr(program_.expressions[arg.value().index], this);
     }
-    add_symbol(decl.name, TypeHandle{0});
+    add_symbol(decl.name, TypeHandle{0xffffffff});
 }
 
 void SemanticAnalyzer::visit(const AllocDecl& decl) {
     if (!decl.element_type.is_null()) visit_type(program_.types[decl.element_type.index], this);
     if (decl.size && !decl.size.value().is_null()) visit_expr(program_.expressions[decl.size.value().index], this);
-    add_symbol(decl.name, TypeHandle{0});
+    add_symbol(decl.name, TypeHandle{0xffffffff});
 }
 
 
@@ -2321,12 +2633,69 @@ void SemanticAnalyzer::check_escape_return(ExprHandle value) {
         report_error("Escape analysis failed: returning a reference or pointer to a local variable");
     }
 }
+
+bool SemanticAnalyzer::is_copyable(TypeHandle type_handle) {
+    if (type_handle.is_null()) return true;
+    
+    auto& type = program_.types[type_handle.index];
+    
+    if (std::holds_alternative<ArrayType>(type)) {
+        return false;
+    }
+    
+    if (auto* named = std::get_if<NamedType>(&type)) {
+        auto sym = find_symbol(named->name);
+        if (sym && !sym->decl_handle.is_null()) {
+            auto& decl = program_.declarations[sym->decl_handle.index];
+            if (auto* struct_decl = std::get_if<StructDecl>(&decl)) {
+                if (has_attribute(struct_decl->attributes, "nocopy")) return false;
+                for (const auto& member : struct_decl->members) {
+                    if (!is_copyable(member.type)) return false;
+                }
+            } else if (auto* enum_decl = std::get_if<EnumDecl>(&decl)) {
+                if (has_attribute(enum_decl->attributes, "nocopy")) return false;
+            }
+        }
+    }
+    
+    if (auto* tuple = std::get_if<TupleType>(&type)) {
+        for (const auto& t : tuple->element_types) {
+            if (!is_copyable(t)) return false;
+        }
+    }
+    
+    if (auto* opt = std::get_if<OptionalType>(&type)) {
+        return is_copyable(opt->element_type);
+    }
+    
+    return true;
+}
+
+void SemanticAnalyzer::check_implicit_copy(ExprHandle expr) {
+    if (expr.is_null()) return;
+    
+    TypeHandle prev_type = current_expr_type_;
+    visit_expr(program_.expressions[expr.index], this);
+    TypeHandle expr_type = current_expr_type_;
+    current_expr_type_ = prev_type;
+    
+    if (!is_copyable(expr_type)) {
+        auto& ast_expr = program_.expressions[expr.index];
+        if (std::holds_alternative<MoveExpr>(ast_expr) ||
+            std::holds_alternative<ArrayLiteralExpr>(ast_expr) ||
+            std::holds_alternative<StructInitExpr>(ast_expr) ||
+            std::holds_alternative<CallExpr>(ast_expr)) {
+            return;
+        }
+        report_error("Implicit copy of non-copyable type is not allowed. Use 'move(...)' to transfer ownership explicitly.");
+    }
+}
 void SemanticAnalyzer::visit(const RangeType& type) {
-    current_expr_type_ = TypeHandle{0};
+    current_expr_type_ = TypeHandle{0xffffffff};
 }
 
 void SemanticAnalyzer::visit(const VariadicType& type) {
-    current_expr_type_ = TypeHandle{0};
+    current_expr_type_ = TypeHandle{0xffffffff};
 }
 
 void SemanticAnalyzer::visit(const RangeExpr& expr) {

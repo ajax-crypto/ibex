@@ -196,6 +196,10 @@ struct TypeofExpr {
     ExprHandle expr;
 };
 
+struct MoveExpr {
+    ExprHandle operand;
+};
+
 struct MemberExpr {
     ExprHandle object;
     Str member;
@@ -323,6 +327,7 @@ using Expr = std::variant<
     CastExpr,
     IsExpr,
     TypeofExpr,
+    MoveExpr,
     MemberExpr,
     TypeMemberExpr,
     IndexExpr,

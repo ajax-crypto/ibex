@@ -51,6 +51,7 @@ public:
     virtual void visit(const CastExpr& expr) = 0;
     virtual void visit(const IsExpr& expr) = 0;
     virtual void visit(const TypeofExpr& expr) = 0;
+    virtual void visit(const MoveExpr& expr) = 0;
     virtual void visit(const MemberExpr& expr) = 0;
     virtual void visit(const TypeMemberExpr& expr) = 0;
     virtual void visit(const IndexExpr& expr) = 0;

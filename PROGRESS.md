@@ -36,9 +36,14 @@
 - [x] **C-Style Variadic Arguments**: For seamless C interoperability and variable-length argument passing.
 - [ ] **Versioning System**: First-class support for module versioning and language versioning boundaries.
 - [ ] **Inline Assembly**: Direct hardware and register control.
-- [ ] **Destructive Move**: Secure, default destructive-move semantics.
+- [x] **Destructive Move**: Secure, default destructive-move semantics.
 - [ ] **Parameterized Types**: Generics/parameterized structural types.
+
+## Tooling & Ecosystem
+- [x] **Tree-sitter Grammar**: Complete language grammar (`grammar.js`) for editor integrations.
+- [x] **VS Code Syntax Highlighting**: TextMate grammar and basic extension.
+- [ ] **Language Server Protocol (LSP)**: `ibex-lsp` executable providing live semantic diagnostics (like auto-highlighting "use after move"), hover info, and auto-completion in VS Code.
 
 ## Broader Goals
 - [ ] Establish Ibex as a fast, explicit, C-alternative for engine and systems programming.
-- [ ] Deliver a native IDE Language Server (LSP) leveraging the fast, multi-pass Semantic Analyzer.
+- [ ] Deliver a robust package manager for dependency resolution and distribution.

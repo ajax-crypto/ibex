@@ -1,0 +1,31 @@
+{
+  "name": "ibex",
+  "displayName": "Ibex Language Support",
+  "description": "Syntax highlighting and language configuration for the Ibex programming language.",
+  "version": "0.1.0",
+  "publisher": "ibex-lang",
+  "engines": {
+    "vscode": "^1.60.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "ibex",
+        "aliases": ["Ibex", "ibex"],
+        "extensions": [".ibex"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "ibex",
+        "scopeName": "source.ibex",
+        "path": "./syntaxes/ibex.tmLanguage.json"
+      }
+    ]
+  }
+}
+

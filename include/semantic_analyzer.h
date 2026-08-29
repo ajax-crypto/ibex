@@ -30,6 +30,7 @@ struct Symbol {
     // For escape analysis
     uint32_t scope_depth = 0;
     bool is_static = false;
+    bool is_moved = false;
 };
 
 struct Scope {
@@ -78,6 +79,7 @@ public:
     void visit(const CastExpr& expr) override;
     void visit(const IsExpr& expr) override;
     void visit(const TypeofExpr& expr) override;
+    void visit(const MoveExpr& expr) override;
     void visit(const MemberExpr& expr) override;
     void visit(const TypeMemberExpr& expr) override;
     void visit(const IndexExpr& expr) override;
@@ -133,6 +135,7 @@ private:
     void add_symbol(Str name, TypeHandle type, DeclHandle decl_handle = DeclHandle{}, bool is_const = false, bool allow_unused = false, bool is_static = false);
 public:
     std::optional<Symbol> find_symbol(Str name);
+    Symbol* find_symbol_mut(Str name);
 private:
     void report_error(const std::string& msg);
 
@@ -147,8 +150,13 @@ private:
     uint32_t get_lifetime_depth(ExprHandle handle);
     void check_escape(ExprHandle target, ExprHandle value);
     void check_escape_return(ExprHandle value);
+    bool is_copyable(TypeHandle type);
+    void check_implicit_copy(ExprHandle expr);
     
     TypeHandle resolve_type(const Type& type_variant);
+    TypeHandle resolve_aliases(TypeHandle t);
+    bool is_structurally_identical(TypeHandle a, TypeHandle b);
+    bool is_cast_allowed(TypeHandle source, TypeHandle target);
     
     // Struct inheritance helper
     void flatten_struct_bases(StructDecl& decl, std::vector<StructMember>& out_members, uint32_t& current_offset);

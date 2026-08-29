@@ -1804,6 +1804,20 @@ ExprHandle Parser::parse_primary() {
         return store_expr(t_expr);
     }
 
+    if (match(TokenType::MOVE_KW)) {
+        if (!match(TokenType::LPAREN)) {
+            error("Expected '(' after move");
+            return ExprHandle();
+        }
+        ExprHandle target = parse_expression();
+        if (!match(TokenType::RPAREN)) {
+            error("Expected ')' after move expression");
+            return ExprHandle();
+        }
+        MoveExpr m_expr{target};
+        return store_expr(m_expr);
+    }
+
     if (match(TokenType::TRUE_LITERAL)) {
         LiteralExpr lit{LiteralExpr::Kind::BOOLEAN};
         lit.value.bool_value = true;

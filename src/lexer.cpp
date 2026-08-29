@@ -222,6 +222,7 @@ TokenType Lexer::keyword_type(std::string_view lexeme) {
         {"import", TokenType::IMPORT},
         {"typeof", TokenType::TYPEOF},
         {"sizeof", TokenType::SIZEOF},
+        {"move", TokenType::MOVE_KW},
         {"or", TokenType::OR},
         {"ref", TokenType::REF},
         {"true", TokenType::TRUE_LITERAL},

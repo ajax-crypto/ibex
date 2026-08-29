@@ -51,6 +51,7 @@ enum class TokenType {
     REF,            // ref (reference operator)
     SWITCH,         // switch
     CASE,           // case
+    MOVE_KW,        // move
     DEFAULT_KW,     // default
 
     // Primitive types

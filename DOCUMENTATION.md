@@ -113,6 +113,35 @@ enum BaseColor : u8 { Red = 1, Green = 2 }
 enum ExtColor : BaseColor { Blue = 3 } // Inherits Red and Green from BaseColor
 ```
 
+## 5. Memory Management and Moves
+
+Ibex uses a strict, safe memory model featuring destructive moves, compile-time pinning, and implicit Return Value Optimization (RVO).
+
+- **Copyable Types**: All primitive types, slices, strings (non-owning), and structs comprised of copyable types are implicitly copyable on assignment or function parameter passing.
+- **Non-Copyable Types**: Arrays (`[N]T`), and structs explicitly marked with `[[nocopy]]` or containing non-copyable members are not implicitly copyable.
+
+If you want to transfer ownership of a non-copyable type, you must use the `move()` operator. 
+```ibex
+arr1: [4]i32;
+// arr2 := arr1; // Compiler Error: Implicit copy of non-copyable type
+arr2 := move(arr1); // OK
+// var3 := arr1; // Compiler Error: Use of moved variable
+```
+
+### Pinning and Revival
+- **Revival**: Moved variables can be revived by re-assigning them to a new value (`arr1 = ...`). 
+- **Pinning**: A variable or type can be marked with `[[nomove]]` to prevent it from ever being moved. Attempting to apply `move()` to a pinned variable is a compile-time error. Additionally, `const` variables are automatically pinned.
+
+### Return Value Optimization (RVO)
+When returning a local non-copyable variable from a function, the compiler automatically performs RVO. The local variable acts as an implicit move and is evaluated directly into the call-site's memory.
+```ibex
+make_array: () -> [4]i32 {
+    arr: [4]i32;
+    arr[0] = 1;
+    return arr; // Implicit move (RVO), legal
+}
+```
+
 ## 5. Uniform Function Call Syntax (UFCS)
 Any free-standing function can be called as a method on its first argument via the dot `.` syntax. This allows for a fluent, object-oriented-like API without requiring methods to be forcefully bound inside structs.
 ```ibex

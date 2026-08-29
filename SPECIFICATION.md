@@ -310,3 +310,11 @@ LambdaParam ::= Identifier ":" Type
 - When immediately invoked, the lambda is wrapped in parentheses and called: `((params) -> RetType { body })(args)`.
 - When assigned to a variable, the inferred type is a function type matching the lambda's signature.
 
+
+### 3.12 Destructive Move and Memory Semantics
+- **Copyability**: Primitive types, non-owning strings/slices, and plain structs are implicitly copyable. Arrays (`[N]T`) and structs tagged with `[[nocopy]]` are non-copyable. Attempting to implicitly copy a non-copyable type during assignment, parameter passing, or initialization emits a compile-time error.
+- **Move Operator (`move(x)`)**: A built-in unary operator that transfers ownership. Applying `move` to a variable invalidates it.
+- **Use-After-Move**: Using a variable after it has been moved (without explicitly re-assigning it) produces a strict compile-time error.
+- **Pinning (`[[nomove]]`)**: Variables marked `[[nomove]]` and types marked `[[nomove]]` cannot be moved. `const` variables are implicitly pinned.
+- **Return Value Optimization (RVO)**: Local non-copyable variables returned by value are implicitly moved, preventing the need for an explicit `return move(x)`.
+
