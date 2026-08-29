@@ -238,7 +238,34 @@ Symbol* SemanticAnalyzer::find_symbol_mut(Str name) {
 }
 
 std::optional<Symbol> SemanticAnalyzer::find_symbol(Str name) {
-    std::cout << "find_symbol: " << std::string(name.ptr(), name.len()) << "\n";
+    std::string sname(name.ptr(), name.len());
+    
+    // Handle dotted names (e.g. "types.MyInt")
+    auto dot_pos = sname.find('.');
+    if (dot_pos != std::string::npos) {
+        std::string pkg_or_alias = sname.substr(0, dot_pos);
+        std::string sym_name = sname.substr(dot_pos + 1);
+        
+        std::string target_pkg = pkg_or_alias;
+        for (const auto& imp : current_imports_) {
+            if (imp.alias && std::string(imp.alias->ptr(), imp.alias->len()) == pkg_or_alias) {
+                if (imp.package_name) target_pkg = std::string(imp.package_name->ptr(), imp.package_name->len());
+                break;
+            }
+        }
+        
+        auto it = packages_.find(target_pkg);
+        if (it != packages_.end()) {
+            for (auto& sym : it->second.symbols) {
+                if (std::string(sym.name.ptr(), sym.name.len()) == sym_name) {
+                    sym.is_used = true;
+                    return sym;
+                }
+            }
+        }
+        return std::nullopt;
+    }
+
     // 1. Check local scopes (and global built-ins in scopes_[0])
     for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
         for (auto& sym : it->symbols) {
@@ -280,7 +307,7 @@ std::optional<Symbol> SemanticAnalyzer::find_symbol(Str name) {
     }
     
     // 4. Check if it's a namespace (module or package alias)
-    std::string sname(name.ptr(), name.len());
+    
     for (const auto& imp : current_imports_) {
         std::string mod_name(imp.module_name.ptr(), imp.module_name.len());
         if (sname == mod_name) {
@@ -463,6 +490,8 @@ bool SemanticAnalyzer::is_cast_allowed(TypeHandle source, TypeHandle target) {
                     auto& decl = program_.declarations[sym->decl_handle.index];
                     return std::holds_alternative<EnumDecl>(decl) || std::holds_alternative<FlagDecl>(decl);
                 }
+            } else {
+                std::cout << "DEBUG: is_enum_or_flag couldn't find symbol " << std::string(named->name.ptr(), named->name.len()) << "\n";
             }
         }
         return false;
@@ -1160,6 +1189,7 @@ void SemanticAnalyzer::visit(const CastExpr& expr) {
             }
         }
         
+
         report_error("Illegal cast from evaluated type to target type (structurally incompatible)");
     }
     

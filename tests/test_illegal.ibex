@@ -223,3 +223,22 @@ test_illegal_moves: () -> void {
     v3 := val; // Error
 }
 
+struct StructA { x: i32; y: f32; }
+struct StructC { x: i32; } // Not identical to StructA
+
+illegal_casts: () -> void {
+    // 1. Array to text
+    arr : [4]u8;
+    t := arr as text; // Error: opaque cast
+    
+    // 2. Text to int
+    s := "hello";
+    i := s as i32; // Error: opaque cast
+    
+    // 3. Structurally mismatched cast
+    sa := StructA { x: 1, y: 2.0 };
+    sc := sa as StructC; // Error: mismatched layout
+}
+
+}
+

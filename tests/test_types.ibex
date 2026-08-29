@@ -131,9 +131,30 @@ type_member_test: () -> void {
     m := Permissions.Read;
 }
 
+struct StructA { x: i32; y: f32; }
+struct StructB { a: i32; b: f32; } // Structurally identical to StructA
+struct StructC { x: i32; } // Not identical
+
 // 24. Cast expressions
 cast_test: () -> void {
+    // Primitive conversions
     x := 1.5 as i32;
+    y := 10 as f64;
+    
+    // Enum/Flag <-> Integer
+    c := Colors.Red as i32;
+    c2 := 2 as Colors;
+    
+    p := Permissions.Read as u32;
+    p2 := 1 as Permissions;
+    
+    // Strong Aliases
+    strong_val : types.MyInt = 100 as types.MyInt;
+    base_val : i32 = strong_val as i32;
+    
+    // Structural casting (identical layout)
+    sa : StructA = StructA { x: 1, y: 2.0 };
+    sb : StructB = sa as StructB; // Valid because structurally identical
 }
 
 // 25. Block statements
